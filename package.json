@@ -1,0 +1,35 @@
+{
+  "name": "watchgoose-mcp-monorepo",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "tsc -b && npm run bundle:stdio",
+    "bundle:stdio": "esbuild packages/stdio/src/cli.ts --bundle --platform=node --format=esm --target=node20 --external:@modelcontextprotocol/server --external:@modelcontextprotocol/server/* --external:zod --external:zod/* --banner:js=\"#!/usr/bin/env node\" --outfile=packages/stdio/dist/cli.js",
+    "clean": "tsc -b --clean",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "lint": "eslint .",
+    "test": "npm run build && vitest run",
+    "test:integration": "vitest run --config vitest.integration.config.ts",
+    "typecheck": "tsc -b --pretty false && tsc --noEmit --pretty false -p tsconfig.integration.json",
+    "publish:dry-run": "npm publish --dry-run --workspace watchgoose-mcp"
+  },
+  "devDependencies": {
+    "@eslint/js": "9.39.2",
+    "@modelcontextprotocol/client": "2.0.0",
+    "@types/node": "24.10.1",
+    "esbuild": "0.28.2",
+    "eslint": "9.39.2",
+    "prettier": "3.6.2",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.48.1",
+    "vitest": "^4.1.11"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

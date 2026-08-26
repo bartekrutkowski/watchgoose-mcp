@@ -1,0 +1,46 @@
+{
+  "name": "watchgoose-mcp",
+  "version": "0.1.0",
+  "description": "MCP server for managing and querying Watchgoose checks",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "watchgoose-mcp": "dist/cli.js"
+  },
+  "files": [
+    "dist/cli.js",
+    "README.md",
+    "LICENSE"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bartekrutkowski/watchgoose-mcp.git"
+  },
+  "homepage": "https://github.com/bartekrutkowski/watchgoose-mcp#readme",
+  "bugs": {
+    "url": "https://github.com/bartekrutkowski/watchgoose-mcp/issues"
+  },
+  "keywords": [
+    "watchgoose",
+    "mcp",
+    "cron",
+    "monitoring",
+    "model-context-protocol"
+  ],
+  "dependencies": {
+    "@modelcontextprotocol/server": "2.0.0",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@watchgoose/mcp-core": "0.1.0"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "prepack": "npm run build --prefix ../.."
+  }
+}

@@ -1,8 +1,8 @@
 # Production verification
 
-Run this checklist after reviewing the uncommitted T-109 changes. Use a dedicated Watchgoose test
-project with no customer checks or integrations. Do not paste API keys, ping URLs, Terraform state,
-or raw command output into tickets or public logs.
+Run this checklist from the reviewed T-109 commit on `main`. Use a dedicated Watchgoose test project
+with no customer checks or integrations. Do not paste API keys, ping URLs, Terraform state, or raw
+command output into tickets or public logs.
 
 ## 1. Create test credentials
 
@@ -70,8 +70,9 @@ WATCHGOOSE_INTEGRATION=1 WATCHGOOSE_TEST_429=1 \
 ```
 
 The test passes only when the MCP result tells the client to back off. It also checks the live 429
-response for `Retry-After`; when present, the MCP result must include the same delay in seconds.
-Wait for the project's API quota to recover before further verification.
+response for `Retry-After`; when present, the MCP result must include the delay clamped to the
+server's supported 1-3600 second guidance range. Wait for the project's API quota to recover before
+further verification.
 
 ## 4. Verify the community Terraform provider
 
@@ -166,15 +167,13 @@ Claude Desktop sees exactly three tools and no mutation tools.
 The owner performs every external state change:
 
 1. Create the public `bartekrutkowski/watchgoose-mcp` repository.
-2. After explicit review approval, authorize the implementation commit on `t109-core-stdio`.
-3. Push the reviewed ticket branch.
-4. Establish the reviewed commit as the repository's initial `main` history, enable branch
-   protection, and confirm GitHub Actions passes format, lint, typecheck, tests, build, and package
-   dry-run on Node 20 and Node 24.
-5. Run `npm publish --dry-run --workspace watchgoose-mcp` once more from a clean checkout.
-6. Run `npm publish --workspace watchgoose-mcp` as the owner.
-7. Verify `npm view watchgoose-mcp version` and start a fresh `npx -y watchgoose-mcp` connection.
-8. Revoke both test keys and delete the dedicated test project.
+2. Add it as this checkout's `origin` and push the reviewed `main` branch.
+3. Enable branch protection and confirm GitHub Actions passes format, lint, typecheck, tests, build,
+   and package dry-run on Node 20 and Node 24.
+4. Run `npm publish --dry-run --workspace watchgoose-mcp` once more from a clean checkout.
+5. Run `npm publish --workspace watchgoose-mcp` as the owner.
+6. Verify `npm view watchgoose-mcp version` and start a fresh `npx -y watchgoose-mcp` connection.
+7. Revoke both test keys and delete the dedicated test project.
 
 Registry submissions, hosted Worker deployment, and the public `/docs/mcp/` page are T-152/T-153
 work and are not part of this checklist.

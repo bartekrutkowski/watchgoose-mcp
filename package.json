@@ -8,14 +8,19 @@
   ],
   "scripts": {
     "build": "tsc -b && npm run bundle:stdio",
+    "build:base": "tsc -b packages/core packages/stdio && npm run bundle:stdio",
+    "build:server": "tsc -b packages/core packages/server",
     "bundle:stdio": "esbuild packages/stdio/src/cli.ts --bundle --platform=node --format=esm --target=node20 --external:@modelcontextprotocol/server --external:@modelcontextprotocol/server/* --external:zod --external:zod/* --banner:js=\"#!/usr/bin/env node\" --outfile=packages/stdio/dist/cli.js",
     "clean": "tsc -b --clean",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "lint": "eslint .",
     "test": "npm run build && vitest run",
+    "test:base": "npm run build:base && vitest run packages/core packages/stdio",
+    "test:server": "npm run build:server && vitest run packages/server tests/server",
     "test:integration": "vitest run --config vitest.integration.config.ts",
-    "typecheck": "tsc -b --pretty false && tsc --noEmit --pretty false -p tsconfig.integration.json",
+    "typecheck": "tsc -b --pretty false && tsc --noEmit --pretty false -p tsconfig.integration.json && tsc --noEmit --pretty false -p tsconfig.server-tests.json",
+    "typecheck:base": "tsc -b packages/core packages/stdio --pretty false && tsc --noEmit --pretty false -p tsconfig.integration.json",
     "publish:dry-run": "npm publish --dry-run --workspace watchgoose-mcp"
   },
   "devDependencies": {
@@ -27,7 +32,7 @@
     "prettier": "3.6.2",
     "typescript": "5.9.3",
     "typescript-eslint": "8.48.1",
-    "vitest": "^4.1.11"
+    "vitest": "4.1.11"
   },
   "engines": {
     "node": ">=20"

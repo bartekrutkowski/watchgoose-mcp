@@ -1,0 +1,11 @@
+.git
+.github
+.tsbuildinfo
+coverage
+node_modules
+packages/*/dist
+tests
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+.env*

@@ -168,12 +168,12 @@ The owner performs every external state change:
 
 1. Create the public `bartekrutkowski/watchgoose-mcp` repository.
 2. Add it as this checkout's `origin` and push the reviewed `main` branch.
-3. Enable branch protection and confirm GitHub Actions passes format, lint, typecheck, tests, build,
-   and package dry-run on Node 20 and Node 24.
+3. Enable branch protection and confirm GitHub Actions passes the core/stdio path on Node 20 and the
+   full server/container path on Node 24.
 4. Run `npm publish --dry-run --workspace watchgoose-mcp` once more from a clean checkout.
 5. Run `npm publish --workspace watchgoose-mcp` as the owner.
 6. Verify `npm view watchgoose-mcp version` and start a fresh `npx -y watchgoose-mcp` connection.
 7. Revoke both test keys and delete the dedicated test project.
 
-Registry submissions, hosted Worker deployment, and the public `/docs/mcp/` page are T-152/T-153
-work and are not part of this checklist.
+The self-hosted service deployment and public `/docs/mcp/` page are separate T-152/T-153 owner work
+and are not part of this stdio checklist. See `docs/self-hosted-server.md` for the server boundary.

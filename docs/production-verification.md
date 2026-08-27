@@ -1,8 +1,8 @@
 # Production verification
 
 Run this checklist from the reviewed T-109 commit on `main`. Use a dedicated Watchgoose test project
-with no customer checks or integrations. Do not paste API keys, ping URLs, Terraform state, or raw
-command output into tickets or public logs.
+with no customer checks or integrations. Do not paste API keys, ping URLs, or raw command output
+into tickets or public logs.
 
 ## 1. Create test credentials
 
@@ -74,62 +74,7 @@ response for `Retry-After`; when present, the MCP result must include the delay 
 server's supported 1-3600 second guidance range. Wait for the project's API quota to recover before
 further verification.
 
-## 4. Verify the community Terraform provider
-
-This test uses community provider `kristofferahl/healthchecksio` v2.3.0. It performs remote reads
-with the read-write key; it must not run `terraform apply` or `terraform destroy`.
-
-Create one disposable check in Watchgoose and note its UUID privately. In a temporary directory
-outside this repository, create this configuration:
-
-```hcl
-terraform {
-  required_providers {
-    healthchecksio = {
-      source  = "kristofferahl/healthchecksio"
-      version = "2.3.0"
-    }
-  }
-}
-
-variable "api_key" {
-  type      = string
-  sensitive = true
-}
-
-provider "healthchecksio" {
-  api_key = var.api_key
-  api_url = "https://watchgoose.com/api/v3"
-}
-
-resource "healthchecksio_check" "probe" {
-  name    = "Terraform compatibility probe"
-  timeout = 300
-  grace   = 60
-}
-```
-
-Then run:
-
-```shell
-export TF_VAR_api_key="$WATCHGOOSE_TEST_RW_API_KEY"
-terraform init
-terraform import healthchecksio_check.probe THE_PRIVATE_CHECK_UUID
-terraform state show healthchecksio_check.probe >/dev/null
-terraform plan -refresh-only
-```
-
-An import and refresh that read the Watchgoose check successfully establish the compatibility
-verdict required by T-109 without changing the remote check. A refresh plan may show local state or
-configuration drift; do not apply it. Delete the probe from the Watchgoose dashboard, then securely
-remove the temporary directory and its state.
-
-The provider is not compatible with an `hcr_` key: v2.3.0 derives each resource ID from
-`update_url`, which the Watchgoose read-only response intentionally omits, and its channel data
-source calls an endpoint outside the read-only-key surface. Record this limitation with the positive
-read-write-key verdict. Do not describe the provider as official.
-
-## 5. Verify the published package in Claude Desktop
+## 4. Verify the published package in Claude Desktop
 
 After owner review, commit, push, green CI, and owner-run npm publication, use this Claude Desktop
 entry:
@@ -162,14 +107,14 @@ Capture a redacted transcript or screenshots showing the five tool names and suc
 Remove API keys, check identifiers, and URLs from evidence. Repeat with the `hcr_` key and confirm
 Claude Desktop sees exactly three tools and no mutation tools.
 
-## 6. Publish and CI owner checklist
+## 5. Publish and CI owner checklist
 
 The owner performs every external state change:
 
 1. Create the public `bartekrutkowski/watchgoose-mcp` repository.
 2. Add it as this checkout's `origin` and push the reviewed `main` branch.
-3. Enable branch protection and confirm GitHub Actions passes format, lint, typecheck, tests, build,
-   and package dry-run on Node 20 and Node 24.
+3. Confirm GitHub Actions passes format, lint, typecheck, tests, build, and package dry-run on Node
+   20 and Node 24.
 4. Run `npm publish --dry-run --workspace watchgoose-mcp` once more from a clean checkout.
 5. Run `npm publish --workspace watchgoose-mcp` as the owner.
 6. Verify `npm view watchgoose-mcp version` and start a fresh `npx -y watchgoose-mcp` connection.

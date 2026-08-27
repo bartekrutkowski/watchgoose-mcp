@@ -4,6 +4,26 @@ Watchgoose MCP connects MCP-capable AI clients to the Watchgoose Management API.
 cron and recurring-task monitoring, with check changes available only when you explicitly enable
 writes.
 
+## Hosted connector
+
+Use the hosted Streamable HTTP endpoint in clients that support OAuth 2.1 and Dynamic Client
+Registration:
+
+```text
+https://mcp.watchgoose.com/mcp
+```
+
+In Claude, open **Settings > Connectors** and add the endpoint as a custom connector. For Claude
+Code, run:
+
+```shell
+claude mcp add --transport http --scope user watchgoose https://mcp.watchgoose.com/mcp
+```
+
+The browser consent flow limits each connection to one project and defaults to read-only access. See
+the [Watchgoose MCP documentation](https://watchgoose.com/docs/mcp/) for the tool and privacy
+boundaries.
+
 ## Requirements
 
 - Node.js 20 or later

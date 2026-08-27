@@ -13,20 +13,33 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  test:
+  node20-core-stdio:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        node-version: [20, 24]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: ${{ matrix.node-version }}
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run format:check
+      - run: npm run lint
+      - run: npm run typecheck:base
+      - run: npm run test:base
+      - run: npm run publish:dry-run
+
+  node24-server:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
           cache: npm
       - run: npm ci
       - run: npm run format:check
       - run: npm run lint
       - run: npm run typecheck
       - run: npm test
-      - run: npm run publish:dry-run
+      - run: npm audit --audit-level=low
+      - run: docker build --tag watchgoose-mcp:test .

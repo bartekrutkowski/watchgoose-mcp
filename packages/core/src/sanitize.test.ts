@@ -28,6 +28,14 @@ describe("output sanitization", () => {
     });
   });
 
+  it("pins write-derived and readonly-origin unique keys to the same value", async () => {
+    const readonly = await sanitizeCheck({
+      unique_key: "22fcf0cd2cf07841d4214d6a14b2b28c1e15be24",
+    });
+    const writable = await sanitizeCheck({ uuid: UUID });
+    expect(writable.unique_key).toBe(readonly.unique_key);
+  });
+
   it("allowlists ping fields", () => {
     expect(
       sanitizePing({

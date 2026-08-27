@@ -56,7 +56,10 @@ function rawCheck(overrides: Record<string, unknown> = {}): Record<string, unkno
 
 function createRouter(
   errorStatus?: number,
-  rawChannels = CHANNEL_ID
+  rawChannels = CHANNEL_ID,
+  channelRecords: Array<Record<string, unknown>> = [
+    { id: CHANNEL_ID, name: "Ops email", kind: "email", secret: "sentinel" },
+  ]
 ): {
   fetch: typeof fetch;
   requests: RecordedRequest[];
@@ -82,9 +85,7 @@ function createRouter(
     }
 
     if (url.pathname.endsWith("/channels/")) {
-      return Response.json({
-        channels: [{ id: CHANNEL_ID, name: "Ops email", kind: "email", secret: "sentinel" }],
-      });
+      return Response.json({ channels: channelRecords });
     }
     if (url.pathname.endsWith("/pings/")) {
       return Response.json({
@@ -130,9 +131,10 @@ function createRouter(
 async function createHarness(
   policy: Pick<WatchgooseToolsOptions, "access" | "enableWrites">,
   errorStatus?: number,
-  rawChannels = CHANNEL_ID
+  rawChannels = CHANNEL_ID,
+  channelRecords?: Array<Record<string, unknown>>
 ): Promise<Harness> {
-  const router = createRouter(errorStatus, rawChannels);
+  const router = createRouter(errorStatus, rawChannels, channelRecords);
   const server = new McpServer({ name: "watchgoose-test", version: "0.1.0" });
   registerWatchgooseTools(server, {
     apiKey: API_KEY,
@@ -296,6 +298,39 @@ describe("tool calls", () => {
       `/api/v3/checks/${UUID}/pause`,
     ]);
   });
+
+  it.each([
+    [
+      "missing",
+      [],
+      "Integration not found. Call list_channels and retry with an exact integration name.",
+    ],
+    [
+      "duplicate",
+      [
+        { id: CHANNEL_ID, name: "Ops email", kind: "email" },
+        { id: "bbbbbbbb-cccc-4ddd-8eee-ffffffffffff", name: "Ops email", kind: "webhook" },
+      ],
+      "An integration name matches more than once. Rename duplicate integrations in Watchgoose, then retry with an exact unique name.",
+    ],
+  ] as const)(
+    "rejects a %s integration name before mutation",
+    async (_case, channels, expected) => {
+      const { client, requests } = await createHarness(
+        { access: "read-write", enableWrites: true },
+        undefined,
+        CHANNEL_ID,
+        [...channels]
+      );
+      const result = await client.callTool({
+        name: "create_check",
+        arguments: { name: "Test", channels: ["Ops email"] },
+      });
+      expect(result.isError).toBe(true);
+      expect(textOf(result)).toBe(expected);
+      expect(requests.some((request) => request.method === "POST")).toBe(false);
+    }
+  );
 
   it("rejects malformed identifiers before making an API request", async () => {
     const { client, requests } = await createHarness({ access: "read-only", enableWrites: false });

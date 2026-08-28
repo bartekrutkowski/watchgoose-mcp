@@ -192,6 +192,7 @@ async function oauthFlow(
       token_endpoint_auth_method: "none",
       grant_types: ["authorization_code", "refresh_token"],
       response_types: ["code"],
+      scope: "mcp:read mcp:write offline_access",
     }),
   });
   expect(register.status, await register.clone().text()).toBe(201);
@@ -266,7 +267,10 @@ async function oauthFlow(
   expect(callback.status, await callback.clone().text()).toBe(303);
   cookies = mergeCookieValues(cookies, callback);
   const callbackLocation = callback.headers.get("Location");
-  expect(callbackLocation?.startsWith("/oauth/callback")).toBe(false);
+  expect(
+    callbackLocation?.startsWith("/oauth/callback"),
+    callbackLocation ?? "missing callback location"
+  ).toBe(false);
   const clientRedirect = new URL(callbackLocation!);
   expect(clientRedirect.origin + clientRedirect.pathname).toBe("http://127.0.0.1:49152/callback");
   expect(clientRedirect.searchParams.get("state")).toBe("client-state");
@@ -376,6 +380,32 @@ describe("route and metadata policy", () => {
     });
   });
 
+  it("registers hosted Claude with the advertised scopes", async () => {
+    const service = await start();
+    const response = await request(service, "/register", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        redirect_uris: ["https://claude.ai/api/mcp/auth_callback"],
+        token_endpoint_auth_method: "none",
+        grant_types: ["authorization_code", "refresh_token"],
+        response_types: ["code"],
+        scope: "mcp:read mcp:write offline_access",
+        client_name: "Claude",
+        application_type: "web",
+      }),
+    });
+
+    expect(response.status, await response.clone().text()).toBe(201);
+    expect(await response.json()).toMatchObject({
+      redirect_uris: ["https://claude.ai/api/mcp/auth_callback"],
+      token_endpoint_auth_method: "none",
+      scope: "mcp:read mcp:write offline_access",
+      client_name: "Claude",
+      application_type: "web",
+    });
+  });
+
   it("rejects unsafe DCR metadata", async () => {
     const service = await start();
     for (const redirect of ["http://client.example/callback", "custom://callback"]) {
@@ -465,6 +495,26 @@ describe("OAuth and MCP integration", () => {
     expect(refreshed).toMatchObject({ expires_in: 3600, scope: "mcp:read" });
     expect(refreshed.refresh_token).toBeTypeOf("string");
     expect(refreshed.refresh_token).not.toBe(flow.refreshToken);
+  });
+
+  it("rejects ambiguous token resource indicators", async () => {
+    const service = await start();
+    const flow = await oauthFlow(service);
+    const body = new URLSearchParams({
+      grant_type: "refresh_token",
+      client_id: flow.clientId,
+      refresh_token: flow.refreshToken!,
+    });
+    body.append("resource", RESOURCE);
+    body.append("resource", RESOURCE);
+    const response = await request(service, "/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body,
+    });
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ error: "invalid_target" });
   });
 
   it("exposes ten tools only for an effective write grant and never reuses transports", async () => {
@@ -587,6 +637,35 @@ describe("OAuth and MCP integration", () => {
       code_challenge_method: "S256",
       resource: RESOURCE,
     }).toString();
+    const withoutResource = new URL(authorize);
+    withoutResource.searchParams.delete("resource");
+    const rejected = await request(
+      service,
+      `${withoutResource.pathname}${withoutResource.search}`,
+      {},
+      flow.cookies
+    );
+    expect(rejected.status).toBe(303);
+    const rejectedLocation = new URL(rejected.headers.get("Location")!);
+    expect(rejectedLocation.origin + rejectedLocation.pathname).toBe(
+      "http://127.0.0.1:49152/callback"
+    );
+    expect(rejectedLocation.searchParams.get("error")).toBe("invalid_target");
+    expect(rejectedLocation.searchParams.get("state")).toBe("returning-client-state");
+
+    const duplicateResource = new URL(authorize);
+    duplicateResource.searchParams.append("resource", RESOURCE);
+    const duplicate = await request(
+      service,
+      `${duplicateResource.pathname}${duplicateResource.search}`,
+      {},
+      flow.cookies
+    );
+    expect(duplicate.status).toBe(303);
+    expect(new URL(duplicate.headers.get("Location")!).searchParams.get("error")).toBe(
+      "invalid_target"
+    );
+
     const response = await request(
       service,
       `${authorize.pathname}${authorize.search}`,

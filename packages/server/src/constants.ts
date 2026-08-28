@@ -14,7 +14,8 @@ export const CLIENT_REGISTRATION_TTL = 30 * 24 * 60 * 60;
 export const MAX_DCR_CLIENTS = 10_000;
 export const MAX_TRANSIENT_ROWS = 50_000;
 export const MAX_REFRESH_ROWS = 100_000;
-export const ALLOWED_SCOPES = ["mcp:read", "mcp:write", "offline_access"] as const;
+export const MCP_SCOPES = ["mcp:read", "mcp:write"] as const;
+export const ALLOWED_SCOPES = [...MCP_SCOPES, "offline_access"] as const;
 
 export const MAX_DCR_BYTES = 16_384;
 export const MAX_MCP_REQUEST_BYTES = 1_048_576;

@@ -10,8 +10,10 @@ import Provider, {
 import type { ServerConfig } from "./config.js";
 import {
   ACCESS_TOKEN_TTL,
+  ALLOWED_SCOPES,
   AUTHORIZATION_CODE_TTL,
   MAX_HANDOFF_RESPONSE_BYTES,
+  MCP_SCOPES,
   REFRESH_TOKEN_TTL,
   TRANSIENT_TTL,
 } from "./constants.js";
@@ -45,6 +47,9 @@ function stringParam(interaction: Interaction, name: string): string | undefined
 }
 
 function validateAuthorizationInteraction(interaction: Interaction, resource: string): void {
+  if (interaction.params.resource !== resource) {
+    throw new errors.InvalidTarget();
+  }
   const challenge = stringParam(interaction, "code_challenge");
   const clientId = stringParam(interaction, "client_id");
   const clientState = stringParam(interaction, "state");
@@ -54,7 +59,6 @@ function validateAuthorizationInteraction(interaction: Interaction, resource: st
     clientId.length > 200 ||
     !clientState ||
     clientState.length > 500 ||
-    stringParam(interaction, "resource") !== resource ||
     stringParam(interaction, "code_challenge_method") !== "S256" ||
     !challenge ||
     challenge.length < 43 ||
@@ -209,12 +213,15 @@ export function createOAuthService(config: ServerConfig, state: SqliteState): OA
       registrationManagement: { enabled: false },
       resourceIndicators: {
         enabled: true,
-        defaultResource: () => undefined,
+        defaultResource(_ctx, _client, oneOf) {
+          if (oneOf) return oneOf;
+          throw new errors.InvalidTarget();
+        },
         useGrantedResource: () => true,
         getResourceServerInfo(_ctx, resource) {
           if (resource !== config.resource) throw new errors.InvalidTarget();
           return {
-            scope: "mcp:read mcp:write",
+            scope: MCP_SCOPES.join(" "),
             audience: config.resource,
             accessTokenTTL: ACCESS_TOKEN_TTL,
             accessTokenFormat: "opaque",
@@ -254,7 +261,7 @@ export function createOAuthService(config: ServerConfig, state: SqliteState): OA
       registration: "/register",
       token: "/token",
     },
-    scopes: ["offline_access"],
+    scopes: [...ALLOWED_SCOPES],
     ttl: {
       AccessToken: ACCESS_TOKEN_TTL,
       AuthorizationCode: AUTHORIZATION_CODE_TTL,
@@ -357,8 +364,9 @@ export function createOAuthService(config: ServerConfig, state: SqliteState): OA
         !binding.scopes.includes("mcp:write")
       ) {
         grant.rejectResourceScope(config.resource, "mcp:write");
+        grant.rejectOIDCScope("mcp:write");
       }
-      if (binding.scopes.includes("offline_access")) grant.addOIDCScope("offline_access");
+      grant.addOIDCScope(binding.scopes.join(" "));
       const grantId = await grant.save();
       const grantExpiresAt = config.now() + REFRESH_TOKEN_TTL;
       state.storeCredential(grantId, binding, grantExpiresAt);

@@ -254,7 +254,7 @@ export function registerWatchgooseTools(server: McpServer, options: WatchgooseTo
     {
       title: "List a check's status changes",
       description:
-        "List retained up/down status changes for a check, newest first, with optional time filters. A flip records a change between up and down rather than every ping.",
+        "List retained status changes for a check, newest first, with optional time filters. In results, up: 1 means the check became up; up: 0 means any other status, including down, paused, and new after resume. A pause or resume that changes the check's status records a flip.",
       inputSchema: listFlipsInputSchema,
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
     },

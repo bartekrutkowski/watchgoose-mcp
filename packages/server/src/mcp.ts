@@ -78,7 +78,7 @@ function requestMethods(body: unknown): string[] {
 
 function createWebRequest(req: IncomingMessage, config: ServerConfig, body: Buffer): Request {
   const headers = new Headers();
-  for (const name of ["accept", "content-type", "mcp-method", "mcp-protocol-version"]) {
+  for (const name of ["accept", "content-type", "mcp-method", "mcp-name", "mcp-protocol-version"]) {
     const value = req.headers[name];
     if (typeof value === "string") headers.set(name, value);
   }

@@ -728,6 +728,8 @@ describe("OAuth and MCP integration", () => {
       await client.connect(transport);
       expect(client.getDiscoverResult()).toBeDefined();
       expect((await client.listTools()).tools).toHaveLength(3);
+      const result = await client.callTool({ name: "list_checks", arguments: { limit: 1 } });
+      expect(result.isError).not.toBe(true);
     } finally {
       await client.close();
     }

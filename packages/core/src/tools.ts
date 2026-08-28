@@ -285,7 +285,7 @@ export function registerWatchgooseTools(server: McpServer, options: WatchgooseTo
       {
         title: "List Watchgoose integrations",
         description:
-          "List integration names and kinds available for check notifications. Use exact, unique names when assigning integrations with create_check or update_check.",
+          "List integration names and kinds available for check notifications. Only exact, unique integration names can be assigned to checks.",
         inputSchema: listChannelsInputSchema,
         annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
       },
@@ -334,7 +334,7 @@ export function registerWatchgooseTools(server: McpServer, options: WatchgooseTo
       description:
         "Update selected fields on an existing check. Omitted fields remain unchanged; schedule takes precedence over timeout, and integration names must match exactly.",
       inputSchema: updateCheckInputSchema,
-      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
     },
     (input, mcpContext) =>
       executeTool(async () => {
@@ -362,7 +362,7 @@ export function registerWatchgooseTools(server: McpServer, options: WatchgooseTo
       description:
         "Pause monitoring without deleting the check. Unless manual_resume is enabled, a later ping can automatically resume a paused check.",
       inputSchema: checkStateInputSchema,
-      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
     },
     (input, mcpContext) =>
       executeTool(async () => {
@@ -386,7 +386,7 @@ export function registerWatchgooseTools(server: McpServer, options: WatchgooseTo
       description:
         "Resume a paused check and return it to the new state. The next successful ping arms its monitoring schedule.",
       inputSchema: checkStateInputSchema,
-      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
     },
     (input, mcpContext) =>
       executeTool(async () => {
@@ -408,7 +408,7 @@ export function registerWatchgooseTools(server: McpServer, options: WatchgooseTo
     {
       title: "Delete a Watchgoose check",
       description:
-        "Permanently delete a check and its retained monitoring history. This cannot be undone; pause_check is the reversible alternative.",
+        "Permanently delete a check and its retained monitoring history. This cannot be undone.",
       inputSchema: checkStateInputSchema,
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
     },

@@ -214,6 +214,99 @@ describe("tool visibility", () => {
       "List retained status changes for a check, newest first, with optional time filters. In results, up: 1 means the check became up; up: 0 means any other status, including down, paused, and new after resume. A pause or resume that changes the check's status records a flip."
     );
   });
+
+  it("matches the reviewed directory metadata", async () => {
+    const { client } = await createHarness({ access: "read-write", enableWrites: true });
+    const listed = await client.listTools();
+
+    expect(
+      listed.tools.map(({ name, title, description, annotations }) => ({
+        name,
+        title,
+        description,
+        annotations,
+      }))
+    ).toEqual([
+      {
+        name: "list_checks",
+        title: "List Watchgoose checks",
+        description:
+          "List checks in this Watchgoose project, optionally filtered by slug or tags. A successful ping arms a new check; Watchgoose then expects the next success within its timeout or schedule plus grace period.",
+        annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
+      },
+      {
+        name: "get_check",
+        title: "Get a Watchgoose check",
+        description:
+          "Get one check by its stable unique_key, including its current state and schedule. Cron and OnCalendar checks use schedule plus grace; simple checks use timeout plus grace.",
+        annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
+      },
+      {
+        name: "list_pings",
+        title: "List a check's pings",
+        description:
+          "List recent signals for a check, newest first. Success arms or advances monitoring, /fail records failure, and /start begins runtime measurement. Source addresses, user agents, run IDs, body URLs, and ping bodies are never returned.",
+        annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
+      },
+      {
+        name: "list_flips",
+        title: "List a check's status changes",
+        description:
+          "List retained status changes for a check, newest first, with optional time filters. In results, up: 1 means the check became up; up: 0 means any other status, including down, paused, and new after resume. A pause or resume that changes the check's status records a flip.",
+        annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
+      },
+      {
+        name: "list_channels",
+        title: "List Watchgoose integrations",
+        description:
+          "List integration names and kinds available for check notifications. Only exact, unique integration names can be assigned to checks.",
+        annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
+      },
+      {
+        name: "create_check",
+        title: "Create a Watchgoose check",
+        description:
+          "Create a simple timeout check or a cron/OnCalendar schedule check. All fields are optional; schedule takes precedence over timeout. The new check remains unarmed until its first successful ping.",
+        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+      },
+      {
+        name: "update_check",
+        title: "Update a Watchgoose check",
+        description:
+          "Update selected fields on an existing check. Omitted fields remain unchanged; schedule takes precedence over timeout, and integration names must match exactly.",
+        annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
+      },
+      {
+        name: "pause_check",
+        title: "Pause a Watchgoose check",
+        description:
+          "Pause monitoring without deleting the check. Unless manual_resume is enabled, a later ping can automatically resume a paused check.",
+        annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
+      },
+      {
+        name: "resume_check",
+        title: "Resume a Watchgoose check",
+        description:
+          "Resume a paused check and return it to the new state. The next successful ping arms its monitoring schedule.",
+        annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
+      },
+      {
+        name: "delete_check",
+        title: "Delete a Watchgoose check",
+        description:
+          "Permanently delete a check and its retained monitoring history. This cannot be undone.",
+        annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
+      },
+    ]);
+
+    for (const tool of listed.tools) {
+      const crossReferences = listed.tools
+        .filter((candidate) => candidate.name !== tool.name)
+        .filter((candidate) => tool.description?.includes(candidate.name))
+        .map((candidate) => candidate.name);
+      expect(crossReferences, tool.name).toEqual([]);
+    }
+  });
 });
 
 describe("tool calls", () => {

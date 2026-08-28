@@ -204,6 +204,16 @@ describe("tool visibility", () => {
       });
     }
   });
+
+  it("describes the list_flips binary status projection", async () => {
+    const { client } = await createHarness({ access: "read-only" });
+    const listed = await client.listTools();
+    const listFlips = listed.tools.find((tool) => tool.name === "list_flips");
+
+    expect(listFlips?.description).toBe(
+      "List retained status changes for a check, newest first, with optional time filters. In results, up: 1 means the check became up; up: 0 means any other status, including down, paused, and new after resume. A pause or resume that changes the check's status records a flip."
+    );
+  });
 });
 
 describe("tool calls", () => {

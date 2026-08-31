@@ -182,7 +182,12 @@ export function registerWatchgooseTools(server: McpServer, options: WatchgooseTo
       description:
         "List checks in this Watchgoose project, optionally filtered by slug or tags. A successful ping arms a new check; Watchgoose then expects the next success within its timeout or schedule plus grace period.",
       inputSchema: listChecksInputSchema,
-      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
     },
     (input, mcpContext) =>
       executeTool(async () => {
@@ -210,7 +215,12 @@ export function registerWatchgooseTools(server: McpServer, options: WatchgooseTo
       description:
         "Get one check by its stable unique_key, including its current state and schedule. Cron and OnCalendar checks use schedule plus grace; simple checks use timeout plus grace.",
       inputSchema: getCheckInputSchema,
-      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
     },
     (input, mcpContext) =>
       executeTool(async () => {
@@ -231,7 +241,12 @@ export function registerWatchgooseTools(server: McpServer, options: WatchgooseTo
         description:
           "List recent signals for a check, newest first. Success arms or advances monitoring, /fail records failure, and /start begins runtime measurement. Source addresses, user agents, run IDs, body URLs, and ping bodies are never returned.",
         inputSchema: listPingsInputSchema,
-        annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
+        annotations: {
+          readOnlyHint: true,
+          destructiveHint: false,
+          idempotentHint: true,
+          openWorldHint: false,
+        },
       },
       (input, mcpContext) =>
         executeTool(async () => {
@@ -256,7 +271,12 @@ export function registerWatchgooseTools(server: McpServer, options: WatchgooseTo
       description:
         "List retained status changes for a check, newest first, with optional time filters. In results, up: 1 means the check became up; up: 0 means any other status, including down, paused, and new after resume. A pause or resume that changes the check's status records a flip.",
       inputSchema: listFlipsInputSchema,
-      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
     },
     (input, mcpContext) =>
       executeTool(async () => {
@@ -287,7 +307,12 @@ export function registerWatchgooseTools(server: McpServer, options: WatchgooseTo
         description:
           "List integration names and kinds available for check notifications. Only exact, unique integration names can be assigned to checks.",
         inputSchema: listChannelsInputSchema,
-        annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
+        annotations: {
+          readOnlyHint: true,
+          destructiveHint: false,
+          idempotentHint: true,
+          openWorldHint: false,
+        },
       },
       (input, mcpContext) =>
         executeTool(async () => {
@@ -309,7 +334,12 @@ export function registerWatchgooseTools(server: McpServer, options: WatchgooseTo
       description:
         "Create a simple timeout check or a cron/OnCalendar schedule check. All fields are optional; schedule takes precedence over timeout. The new check remains unarmed until its first successful ping.",
       inputSchema: createCheckInputSchema,
-      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
     },
     (input, mcpContext) =>
       executeTool(async () => {
@@ -334,7 +364,12 @@ export function registerWatchgooseTools(server: McpServer, options: WatchgooseTo
       description:
         "Update selected fields on an existing check. Omitted fields remain unchanged; schedule takes precedence over timeout, and integration names must match exactly.",
       inputSchema: updateCheckInputSchema,
-      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
     },
     (input, mcpContext) =>
       executeTool(async () => {
@@ -362,7 +397,12 @@ export function registerWatchgooseTools(server: McpServer, options: WatchgooseTo
       description:
         "Pause monitoring without deleting the check. Unless manual_resume is enabled, a later ping can automatically resume a paused check.",
       inputSchema: checkStateInputSchema,
-      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
     },
     (input, mcpContext) =>
       executeTool(async () => {
@@ -386,7 +426,12 @@ export function registerWatchgooseTools(server: McpServer, options: WatchgooseTo
       description:
         "Resume a paused check and return it to the new state. The next successful ping arms its monitoring schedule.",
       inputSchema: checkStateInputSchema,
-      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
     },
     (input, mcpContext) =>
       executeTool(async () => {
@@ -410,7 +455,12 @@ export function registerWatchgooseTools(server: McpServer, options: WatchgooseTo
       description:
         "Permanently delete a check and its retained monitoring history. This cannot be undone.",
       inputSchema: checkStateInputSchema,
-      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
     },
     (input, mcpContext) =>
       executeTool(async () => {

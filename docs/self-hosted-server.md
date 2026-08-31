@@ -116,10 +116,12 @@ Required file-backed secrets:
 - `MCP_STATE_ENCRYPTION_KEY_FILE`: exactly 32 bytes encoded as 64 hex characters or canonical base64
 
 Optional settings are `MCP_HOST` (default `0.0.0.0`), `MCP_PORT` (default `8080`), and
-`MCP_STATE_DATABASE` (default `/data/oauth.sqlite`). Production startup fixes and validates all
-issuer, resource, callback, consent, handoff, API, and documentation URLs to their canonical HTTPS
-values, except the handoff exchange which is fixed to the private `http://web:8000` Compose service.
-`/healthz` checks listener and SQLite readiness and returns no configuration or secrets.
+`MCP_STATE_DATABASE` (default `/data/oauth.sqlite`). Set `OPENAI_APPS_CHALLENGE_TOKEN` only while
+OpenAI needs to verify the MCP host; the corresponding well-known endpoint returns 404 when it is
+unset. Production startup fixes and validates all issuer, resource, callback, consent, handoff, API,
+and documentation URLs to their canonical HTTPS values, except the handoff exchange which is fixed
+to the private `http://web:8000` Compose service. `/healthz` checks listener and SQLite readiness
+and returns no configuration or secrets.
 
 Production is pinned to Node 24 because `better-sqlite3` is native. Do not share `node_modules`
 between Node majors. Rebuild the pinned image or run `npm ci` under Node 24 when a binding or

@@ -64,7 +64,10 @@ function makeOriginFetch(scope: "read" | "read+write" = "read"): typeof fetch {
   }) as typeof fetch;
 }
 
-async function start(fetchFn: typeof fetch = makeOriginFetch()): Promise<RunningService> {
+async function start(
+  fetchFn: typeof fetch = makeOriginFetch(),
+  openAiAppsChallengeToken?: string
+): Promise<RunningService> {
   const directory = mkdtempSync(join(tmpdir(), "watchgoose-mcp-server-"));
   const config: ServerConfig = {
     host: "127.0.0.1",
@@ -77,6 +80,7 @@ async function start(fetchFn: typeof fetch = makeOriginFetch()): Promise<Running
     handoffUrl: "http://web:8000/mcp/handoff/exchange/",
     callbackUrl: `${ISSUER}/oauth/callback`,
     docsUrl: "https://watchgoose.com/docs/mcp/",
+    ...(openAiAppsChallengeToken ? { openAiAppsChallengeToken } : {}),
     workerSecret: "w".repeat(32),
     maintenanceSecret: "m".repeat(32),
     encryptionKey: Buffer.alloc(32, 9),
@@ -380,6 +384,35 @@ describe("route and metadata policy", () => {
     });
   });
 
+  it("serves the exact OpenAI Apps challenge without disturbing OAuth metadata", async () => {
+    const challengeToken = `openai-test-${crypto.randomUUID()}`;
+    const service = await start(makeOriginFetch(), challengeToken);
+    const challenge = await request(service, "/.well-known/openai-apps-challenge");
+
+    expect(challenge.status).toBe(200);
+    expect(challenge.headers.get("Content-Type")).toBe("text/plain; charset=utf-8");
+    expect(await challenge.text()).toBe(challengeToken);
+    const head = await request(service, "/.well-known/openai-apps-challenge", { method: "HEAD" });
+    expect(head.status).toBe(200);
+    expect(head.headers.get("Content-Type")).toBe("text/plain; charset=utf-8");
+    expect(await head.text()).toBe("");
+    const rejected = await request(service, "/.well-known/openai-apps-challenge", {
+      method: "POST",
+    });
+    expect(rejected.status).toBe(405);
+    expect(rejected.headers.get("Allow")).toBe("GET, HEAD");
+    expect((await request(service, "/.well-known/oauth-authorization-server")).status).toBe(200);
+    expect((await request(service, "/.well-known/oauth-protected-resource/mcp")).status).toBe(200);
+  });
+
+  it("hides the OpenAI Apps challenge when it is not configured", async () => {
+    const service = await start();
+    const challenge = await request(service, "/.well-known/openai-apps-challenge");
+
+    expect(challenge.status).toBe(404);
+    expect(await challenge.text()).toBe("Not found");
+  });
+
   it("registers hosted Claude with the advertised scopes", async () => {
     const service = await start();
     const response = await request(service, "/register", {
@@ -404,6 +437,35 @@ describe("route and metadata policy", () => {
       client_name: "Claude",
       application_type: "web",
     });
+  });
+
+  it("bounds repeated registrations as distinct expiring client records", async () => {
+    const service = await start();
+    const metadata = {
+      redirect_uris: ["https://chatgpt.com/connector/oauth/callback"],
+      token_endpoint_auth_method: "none",
+      grant_types: ["authorization_code", "refresh_token"],
+      response_types: ["code"],
+      scope: "mcp:read mcp:write offline_access",
+      client_name: "OpenAI Test",
+    };
+    const register = () =>
+      request(service, "/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(metadata),
+      });
+    const first = await register();
+    const second = await register();
+
+    expect(first.status).toBe(201);
+    expect(second.status).toBe(201);
+    const firstBody = (await first.json()) as { client_id: string };
+    const secondBody = (await second.json()) as { client_id: string };
+    expect(secondBody.client_id).not.toBe(firstBody.client_id);
+    expect(
+      service.state.db.prepare("SELECT COUNT(*) AS count FROM dcr_clients").get()
+    ).toMatchObject({ count: 2 });
   });
 
   it("rejects unsafe DCR metadata", async () => {
@@ -621,10 +683,13 @@ describe("OAuth and MCP integration", () => {
     }
   });
 
-  it("forces consent for a returning provider session", async () => {
+  it("reuses a retained client ID and forces consent for a returning provider session", async () => {
     const service = await start();
     const flow = await oauthFlow(service, "mcp:read", "read");
     expect(flow.cookies).toContain("__Host-wg_session=");
+    expect(
+      service.state.db.prepare("SELECT COUNT(*) AS count FROM dcr_clients").get()
+    ).toMatchObject({ count: 1 });
     const verifier = "r".repeat(64);
     const authorize = new URL("/authorize", service.base);
     authorize.search = new URLSearchParams({
@@ -676,6 +741,9 @@ describe("OAuth and MCP integration", () => {
     const interaction = new URL(response.headers.get("Location")!, ISSUER);
     expect(interaction.pathname).toBe("/oauth/callback");
     expect(interaction.searchParams.has("begin")).toBe(true);
+    expect(
+      service.state.db.prepare("SELECT COUNT(*) AS count FROM dcr_clients").get()
+    ).toMatchObject({ count: 1 });
   });
 
   it("negotiates the modern protocol with a fresh JSON-only exchange", async () => {

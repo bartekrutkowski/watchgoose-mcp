@@ -21,6 +21,7 @@ export interface ServerConfig {
   handoffUrl: string;
   callbackUrl: string;
   docsUrl: string;
+  openAiAppsChallengeToken?: string;
   workerSecret: string;
   maintenanceSecret: string;
   encryptionKey: Buffer;
@@ -87,6 +88,9 @@ export function loadProductionConfig(env: NodeJS.ProcessEnv = process.env): Serv
     handoffUrl: HANDOFF_URL,
     callbackUrl: CALLBACK_URL,
     docsUrl: DOCS_URL,
+    ...(env.OPENAI_APPS_CHALLENGE_TOKEN
+      ? { openAiAppsChallengeToken: env.OPENAI_APPS_CHALLENGE_TOKEN }
+      : {}),
     workerSecret,
     maintenanceSecret,
     encryptionKey,

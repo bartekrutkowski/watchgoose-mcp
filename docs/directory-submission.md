@@ -37,7 +37,20 @@ Owner or Primary owner of a Claude Team or Enterprise organization, or have an E
 role with the Directory or Libraries permission. Confirm that access before provisioning review
 credentials.
 
-Use these portal values in addition to the canonical listing payload:
+The submission approved as a community connector on 2026-08-28 used these values. They supersede the
+canonical payload where they differ:
+
+| Portal field   | Approved value                                                                    |
+| -------------- | --------------------------------------------------------------------------------- |
+| Name           | Watchgoose                                                                        |
+| One-liner      | Monitor cron jobs, backups, Kubernetes jobs and recurring scripts in Claude.      |
+| Author         | Watchgoose.com                                                                    |
+| Icon           | `https://watchgoose.com/static/img/watchgoose-icon-512.png`                       |
+| Category       | Development tools                                                                 |
+| Authentication | `oauth_dcr`                                                                       |
+| Review outcome | Approved as a community connector with permanent slug `watchgoose` on 2026-08-28. |
+
+The submitted detail fields used these values in addition to the approved values above:
 
 | Portal field           | Prepared value                                                                                                                                                                                                                  |
 | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -104,6 +117,187 @@ with the exact live acknowledgment text before the owner accepts it:
 
 Track review status in `https://claude.ai/admin-settings/directory/submissions`. Use
 `mcp-review@anthropic.com` only for submission escalations.
+
+## OpenAI plugin directory
+
+This is an owner-run submission to the plugin directory shared by ChatGPT and Codex. Revalidate the
+[submission requirements](https://developers.openai.com/plugins/deploy/submission) and
+[review requirements](https://developers.openai.com/plugins/deploy/app-review) immediately before
+every scan or submission. The owner must have a Platform organization, complete business
+verification for the deployed `COMPANY_LEGAL_NAME`, and hold **Apps Management: Write**. Business
+verification, portal terms, deployment, testing, submission, and publication are owner actions.
+
+Create the plugin with **Create plugin > With MCP** and use:
+
+| Portal field        | Value                                                        |
+| ------------------- | ------------------------------------------------------------ |
+| Universal MCP URL   | `https://mcp.watchgoose.com/mcp`                             |
+| Authentication      | OAuth with Dynamic Client Registration                       |
+| Documentation       | `https://watchgoose.com/docs/mcp/`                           |
+| Privacy             | `https://watchgoose.com/legal/privacy/`                      |
+| Terms               | `https://watchgoose.com/legal/terms/`                        |
+| Support             | `support@watchgoose.com`                                     |
+| Domain verification | `/.well-known/openai-apps-challenge` on `mcp.watchgoose.com` |
+
+Set `OPENAI_APPS_CHALLENGE_TOKEN` only from the private deployment environment. The endpoint returns
+the exact configured value as `text/plain` with no trailing newline and returns 404 when unset. The
+token never belongs in Git, screenshots, shell history, or review notes. The production container
+must receive the variable explicitly; Docker Compose does not automatically pass arbitrary host
+variables into a service.
+
+Run **Scan Tools** only after the reviewed revision and challenge are live. Scan Tools stores a
+submission-time metadata snapshot; calls continue to use the live server, but tool metadata changes
+require another scan, review, and publication. Compare the scan against source before submitting.
+
+### Annotation justification
+
+All tools use `openWorldHint: false`: Watchgoose is a closed first-party system, and no tool changes
+public internet state. A notification later emitted because a check changes status is downstream
+product behavior of that check, not an external side effect of the MCP tool call.
+
+Pre-change deployment evidence is bounded but consistent: the owner deployed public merge `360e1a5`,
+the corrected Claude portal scan captured all ten tools from that deployment, and Anthropic approved
+the submission after checking the reviewed names, descriptions, and three existing annotations. The
+source metadata test locks that exact set. Neither deployed `360e1a5` nor its source had
+`openWorldHint`, so there was no hidden deployed/source divergence before T-154. T-154 intentionally
+creates a four-annotation source/deployment difference until it is deployed. Before OpenAI Scan
+Tools, capture the authorized read-write `tools/list` response and require all ten records to match
+the source test exactly, including `openWorldHint: false`.
+
+| Tool            | Read only | Destructive | Idempotent | Open world | Submission justification                                                                                                      |
+| --------------- | --------- | ----------- | ---------- | ---------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `list_checks`   | Yes       | No          | Yes        | No         | Reads project checks only.                                                                                                    |
+| `get_check`     | Yes       | No          | Yes        | No         | Reads one project check only.                                                                                                 |
+| `list_pings`    | Yes       | No          | Yes        | No         | Reads retained signals only.                                                                                                  |
+| `list_flips`    | Yes       | No          | Yes        | No         | Reads retained status changes only.                                                                                           |
+| `list_channels` | Yes       | No          | Yes        | No         | Reads integration names and kinds only.                                                                                       |
+| `create_check`  | No        | No          | No         | No         | Creates a project check; retries can create another check. Any later notification is downstream check behavior.               |
+| `update_check`  | No        | Yes         | Yes        | No         | Replaces selected project-check settings and may remove existing values. Any later notification is downstream check behavior. |
+| `pause_check`   | No        | Yes         | Yes        | No         | Stops monitoring state for a project check. Any later notification is downstream check behavior.                              |
+| `resume_check`  | No        | Yes         | Yes        | No         | Restarts monitoring state for a project check. Any later notification is downstream check behavior.                           |
+| `delete_check`  | No        | Yes         | No         | No         | Permanently deletes a project check and retained history.                                                                     |
+
+### Discovery and consent recommendation
+
+The protected-resource document advertises `mcp:read` and `mcp:write`. Under the MCP scope-selection
+strategy, a client that receives no narrower scope signal may request all resource scopes; OpenAI's
+actual authorization URL, including whether it adds `offline_access`, must still be captured during
+owner testing. Watchgoose then shows read-only and read-and-write choices, with read-only selected
+by default. The effective grant, not the DCR registration metadata, controls tool visibility:
+
+| Effective consent | Live `tools/list` result                     |
+| ----------------- | -------------------------------------------- |
+| Read only         | `list_checks`, `get_check`, and `list_flips` |
+| Read and write    | All ten tools                                |
+
+Scan Tools therefore captures three tools after read-only consent or ten after read-and-write
+consent. A ten-tool snapshot paired later with a read-only connection could advertise seven tools
+that the live server intentionally does not register. OpenAI's public documentation explains the
+snapshot but does not specify whether the client reconciles that mismatch or performs scope step-up.
+
+Do not change Watchgoose's consent model in this ticket. Before submission, capture the requested
+scope, perform both consent choices in ChatGPT developer mode, and verify whether the client
+refreshes the live list. If it does not, the safe initial submission is the coherent three-tool
+read-only snapshot. A ten-tool-only listing, per-tool scope metadata, or a separate OpenAI access
+model needs an owner decision and a separately reviewed ticket.
+
+### Dynamic registration longevity
+
+Dynamic registrations are distinct records; repeating the same registration does not deduplicate by
+host or client name. A client that retains its unexpired `client_id` can reuse it across reconnects
+and deployments while the SQLite volume and encryption key remain intact. Reauthorization still
+forces consent and creates fresh grant state. Refresh tokens rotate, concurrent reuse permits one
+success, and grant invalidation does not delete the DCR client, so the same client can reconnect.
+
+Client registrations and refresh grants expire after 30 days. Pruning removes expired rows in
+bounded batches. Storage is capped at 10,000 DCR clients, 100,000 refresh/grant rows, and 50,000
+transient rows; capacity checks fail closed. A client that registers again instead of reusing its
+identifier grows the DCR table until expiry and pruning. A follow-up ticket owns admission rate
+limits, capacity alerting, and additional repeated-registration/reconnect lifecycle coverage; do not
+weaken public DCR or deduplicate shared hosts speculatively.
+
+### CIMD decision memo
+
+Client ID Metadata Documents are additive in principle but are not a metadata-only switch. A safe
+implementation must enable the pinned provider's CIMD support, advertise
+`client_id_metadata_document_supported`, retain DCR, constrain metadata and JWKS fetching against
+SSRF and DNS rebinding, validate redirect and token-auth negotiation, and canary existing DCR
+clients. The code is small, but the authentication assurance and live-client matrix make this a
+separate medium-risk effort of roughly one to two engineering days plus owner-run live validation.
+
+OpenAI documents DCR as supported and lets the plugin builder select it. Recommendation: keep DCR
+for this submission and file CIMD separately only after owner approval or verified Smithery demand.
+An additive implementation should preserve existing client IDs, grants, refresh tokens, and
+`/register`, but new clients may prefer CIMD once it is advertised. See OpenAI's
+[client registration guidance](https://developers.openai.com/plugins/build/auth#client-registration)
+and the MCP
+[CIMD security considerations](https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization/security-considerations#client-id-metadata-document-security).
+
+### OAuth versus workspace OIDC
+
+OpenAI's general plugin authentication guidance accepts OAuth authorization-server metadata and DCR.
+Its `openid`, `email`, UserInfo, and `email_verified: true` requirements are documented under
+[workspace domain restrictions](https://developers.openai.com/plugins/build/auth#support-workspace-domain-restrictions),
+not as a general gate for a public universal MCP plugin. Watchgoose does not request workspace
+domain restrictions, advertise OIDC scopes, or expose UserInfo. Do not add OIDC unless the current
+portal or OpenAI support explicitly requires it; doing so would change scopes and consent behavior
+outside this ticket. The owner must preserve a screenshot or support response if the live form
+contradicts the published guidance.
+
+### Response-field inventory
+
+Every success is one MCP text block containing serialized JSON. List results include
+`meta.returned`, `meta.available_in_response`, `meta.omitted`, `meta.truncated`, and, only when
+user-controlled strings were shortened, `meta.truncated_fields`. Object results may include only
+`meta.truncated_fields: true`. The per-tool JSON payloads are:
+
+| Tool            | Top-level payload    | Item fields                                                     |
+| --------------- | -------------------- | --------------------------------------------------------------- |
+| `list_checks`   | `checks[]`, `meta`   | Check fields below; `channels` is omitted for read-only grants. |
+| `get_check`     | `check`              | Check fields below; `channels` is omitted for read-only grants. |
+| `list_pings`    | `pings[]`, `meta`    | `type`, `date`, `n`, `scheme`, `method`, `duration`             |
+| `list_flips`    | `flips[]`, `meta`    | `timestamp`, `up`                                               |
+| `list_channels` | `channels[]`, `meta` | `name`, `kind`                                                  |
+| `create_check`  | `check`              | Check fields below; resolved `channels` may be present.         |
+| `update_check`  | `check`              | Check fields below; resolved `channels` may be present.         |
+| `pause_check`   | `check`              | Check fields below; resolved `channels` may be present.         |
+| `resume_check`  | `check`              | Check fields below; resolved `channels` may be present.         |
+| `delete_check`  | `deleted`            | Check fields below; resolved `channels` may be present.         |
+
+The check allowlist is `unique_key`, `name`, `slug`, `tags`, `desc`, `grace`, `n_pings`, `status`,
+`started`, `last_ping`, `next_ping`, `last_duration`, `manual_resume`, `methods`, `subject`,
+`subject_fail`, `start_kw`, `success_kw`, `failure_kw`, `filter_subject`, `filter_body`,
+`filter_http_body`, `filter_default_fail`, `timeout`, `schedule`, and `tz`. Optional `channels[]`
+items contain only `name` and `kind`. `unique_key` is an opaque stable 40-character check reference
+derived from the UUID; the raw UUID is never returned.
+
+No raw user, project, check, integration, or ping identifiers; ping URLs; delegated API credentials;
+OAuth tokens; source addresses; user agents; run IDs; ping bodies or body URLs; internal capability
+URLs; debug payloads; or raw API errors are returned. The generated `meta` object contains bounded
+result counts and truncation state, not telemetry. The MCP application adds no telemetry.
+
+### Submission artifacts and reviewer access
+
+These submission artifacts do not exist yet and must be prepared outside Git against the live
+reviewed revision: starter prompts; at least five positive and three negative cases passing on
+ChatGPT web and mobile; the portal CSP declaration if requested for this MCP-only/no-custom-UI
+plugin; final logo and category selection; country availability; and release notes. No plugin output
+may link to checkout or an upgrade flow; commerce through plugins is restricted to physical goods.
+An informational plan-requirement link is allowed only if it does not initiate purchase.
+
+Create a separate disposable OpenAI reviewer account and project with no MFA, SMS,
+email-confirmation, or private-network step. Do not reuse the Claude reviewer account. Store
+credentials only in the owner's private secret channel and revoke the account after review. Rotate
+or revoke the Claude reviewer credential now that its review has closed.
+
+Before submission, prove the existing Claude connection still works without reauthorization and a
+fresh Claude Code loopback authorization still succeeds. Then capture ChatGPT OAuth, Scan Tools, all
+ten disposable tool calls, write confirmations, negative cases, revocation, and reconnect on web and
+mobile. After publication, verify Codex discovers the same directory plugin and completes OAuth plus
+a real `list_checks` call. If the current Codex client does not expose directory plugins, record its
+exact version and the current OpenAI documentation or support answer instead of claiming a
+successful Codex test. Rescan after any metadata change and revalidate every requirement before the
+owner submits.
 
 ## Official MCP Registry
 

@@ -18,6 +18,7 @@ const METHOD_POLICY: Readonly<Record<string, readonly string[]>> = {
   "/oauth/callback": ["GET"],
   "/.well-known/oauth-authorization-server": ["GET"],
   "/.well-known/oauth-protected-resource/mcp": ["GET"],
+  "/.well-known/openai-apps-challenge": ["GET", "HEAD"],
 };
 
 function sendWebResponse(res: ServerResponse, response: Response): void {
@@ -143,6 +144,14 @@ export function createWatchgooseService(config: ServerConfig): WatchgooseService
       state.prune(10_000);
       res.statusCode = 204;
       res.end();
+      return;
+    }
+    if (url.pathname === "/.well-known/openai-apps-challenge") {
+      if (config.openAiAppsChallengeToken === undefined) {
+        fixedResponse(res, 404, "Not found");
+        return;
+      }
+      fixedResponse(res, 200, req.method === "HEAD" ? "" : config.openAiAppsChallengeToken);
       return;
     }
     if (url.pathname === "/.well-known/oauth-protected-resource/mcp") {

@@ -798,9 +798,39 @@ describe("OAuth and MCP integration", () => {
       expect((await client.listTools()).tools).toHaveLength(3);
       const result = await client.callTool({ name: "list_checks", arguments: { limit: 1 } });
       expect(result.isError).not.toBe(true);
+      const text = result.content[0]?.type === "text" ? result.content[0].text : "";
+      expect(result.structuredContent).toEqual(JSON.parse(text));
+      expect(JSON.stringify(result.structuredContent)).toBe(text);
     } finally {
       await client.close();
     }
+  });
+
+  it("keeps legacy tool text and structured output identical", async () => {
+    const service = await start();
+    const flow = await oauthFlow(service, "mcp:read", "read");
+    const response = await request(service, "/mcp", {
+      method: "POST",
+      headers: {
+        Accept: "application/json, text/event-stream",
+        Authorization: `Bearer ${flow.accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 10,
+        method: "tools/call",
+        params: { name: "list_checks", arguments: { limit: 1 } },
+      }),
+    });
+    const body = (await response.json()) as {
+      result: { content: Array<{ type: string; text?: string }>; structuredContent: unknown };
+    };
+    const text = body.result.content[0]?.text ?? "";
+
+    expect(response.status).toBe(200);
+    expect(body.result.structuredContent).toEqual(JSON.parse(text));
+    expect(JSON.stringify(body.result.structuredContent)).toBe(text);
   });
 
   it("does not disclose request, credential, or origin sentinels", async () => {

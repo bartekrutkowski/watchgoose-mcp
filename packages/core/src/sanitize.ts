@@ -1,39 +1,14 @@
 import { InvalidApiResponseError } from "./errors.js";
+import {
+  SAFE_CHANNEL_FIELDS,
+  SAFE_CHECK_FIELDS,
+  SAFE_FLIP_FIELDS,
+  SAFE_PING_FIELDS,
+} from "./schemas.js";
 
-export interface SanitizedChannel {
-  name: string;
-  kind: string;
-}
+export type SanitizedChannel = { [K in (typeof SAFE_CHANNEL_FIELDS)[number]]: string };
 
 export type ChannelById = ReadonlyMap<string, SanitizedChannel>;
-
-const SAFE_CHECK_FIELDS = [
-  "name",
-  "slug",
-  "tags",
-  "desc",
-  "grace",
-  "n_pings",
-  "status",
-  "started",
-  "last_ping",
-  "next_ping",
-  "last_duration",
-  "manual_resume",
-  "methods",
-  "subject",
-  "subject_fail",
-  "start_kw",
-  "success_kw",
-  "failure_kw",
-  "filter_subject",
-  "filter_body",
-  "filter_http_body",
-  "filter_default_fail",
-  "timeout",
-  "schedule",
-  "tz",
-] as const;
 
 function isSafeScalar(value: unknown): value is string | number | boolean | null {
   return value === null || ["string", "number", "boolean"].includes(typeof value);
@@ -84,7 +59,7 @@ export async function sanitizeCheck(
 
 export function sanitizePing(record: Record<string, unknown>): Record<string, unknown> {
   const result: Record<string, unknown> = {};
-  for (const field of ["type", "date", "n", "scheme", "method", "duration"] as const) {
+  for (const field of SAFE_PING_FIELDS) {
     const value = record[field];
     if (isSafeScalar(value)) result[field] = value;
   }
@@ -93,7 +68,7 @@ export function sanitizePing(record: Record<string, unknown>): Record<string, un
 
 export function sanitizeFlip(record: Record<string, unknown>): Record<string, unknown> {
   const result: Record<string, unknown> = {};
-  for (const field of ["timestamp", "up"] as const) {
+  for (const field of SAFE_FLIP_FIELDS) {
     const value = record[field];
     if (isSafeScalar(value)) result[field] = value;
   }
@@ -101,6 +76,7 @@ export function sanitizeFlip(record: Record<string, unknown>): Record<string, un
 }
 
 export function sanitizeChannel(record: Record<string, unknown>): SanitizedChannel | undefined {
-  if (typeof record.name !== "string" || typeof record.kind !== "string") return undefined;
-  return { name: record.name, kind: record.kind };
+  const entries = SAFE_CHANNEL_FIELDS.map((field) => [field, record[field]] as const);
+  if (entries.some(([, value]) => typeof value !== "string")) return undefined;
+  return Object.fromEntries(entries) as SanitizedChannel;
 }

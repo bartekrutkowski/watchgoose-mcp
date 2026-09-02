@@ -156,6 +156,12 @@ function textOf(result: Awaited<ReturnType<Client["callTool"]>>): string {
   return block?.type === "text" ? block.text : "";
 }
 
+function expectStructuredParity(result: Awaited<ReturnType<Client["callTool"]>>): void {
+  const text = textOf(result);
+  expect(result.structuredContent).toEqual(JSON.parse(text));
+  expect(JSON.stringify(result.structuredContent)).toBe(text);
+}
+
 beforeAll(async () => {
   UNIQUE_KEY = await deriveUniqueKey(UUID);
 });
@@ -203,6 +209,30 @@ describe("tool visibility", () => {
         openWorldHint: false,
         readOnlyHint: false,
       });
+    }
+  });
+
+  it("advertises a strict object output schema for every tool", async () => {
+    const { client } = await createHarness({ access: "read-write", enableWrites: true });
+    const listed = await client.listTools();
+    const expectedRootProperties: Record<string, string> = {
+      list_checks: "checks",
+      get_check: "check",
+      list_pings: "pings",
+      list_flips: "flips",
+      list_channels: "channels",
+      create_check: "check",
+      update_check: "check",
+      pause_check: "check",
+      resume_check: "check",
+      delete_check: "deleted",
+    };
+
+    for (const tool of listed.tools) {
+      const schema = tool.outputSchema as Record<string, unknown>;
+      expect(schema.type, tool.name).toBe("object");
+      expect(schema.additionalProperties, tool.name).toBe(false);
+      expect(schema.properties, tool.name).toHaveProperty(expectedRootProperties[tool.name]!);
     }
   });
 
@@ -363,6 +393,7 @@ describe("tool visibility", () => {
 describe("tool calls", () => {
   it("executes and sanitizes every tool through MCP", async () => {
     const { client, requests } = await createHarness({ access: "read-write", enableWrites: true });
+    await client.listTools();
     const calls = [
       ["list_checks", { slug: "nightly-backup", tags: ["prod"], limit: 10 }],
       ["get_check", { unique_key: UNIQUE_KEY }],
@@ -383,6 +414,7 @@ describe("tool calls", () => {
       const result = await client.callTool({ name, arguments: args });
       expect(result.isError, `${name}: ${textOf(result)}`).not.toBe(true);
       const text = textOf(result);
+      expectStructuredParity(result);
       expect(text).not.toMatch(
         /private-agent|private-run|private\/body|future-sentinel|ping\/private|aaaaaaaa-bbbb/
       );
@@ -415,6 +447,7 @@ describe("tool calls", () => {
 
   it("returns a friendly error for every tool", async () => {
     const { client } = await createHarness({ access: "read-write", enableWrites: true }, 429);
+    await client.listTools();
     const calls: Record<string, Record<string, unknown>> = {
       list_checks: {},
       get_check: { unique_key: UNIQUE_KEY },
@@ -433,6 +466,7 @@ describe("tool calls", () => {
       expect(result.isError, name).toBe(true);
       expect(textOf(result)).toContain("Back off");
       expect(textOf(result)).not.toContain("server detail");
+      expect(result.structuredContent).toBeUndefined();
     }
   });
 
@@ -476,12 +510,14 @@ describe("tool calls", () => {
         CHANNEL_ID,
         [...channels]
       );
+      await client.listTools();
       const result = await client.callTool({
         name: "create_check",
         arguments: { name: "Test", channels: ["Ops email"] },
       });
       expect(result.isError).toBe(true);
       expect(textOf(result)).toBe(expected);
+      expect(result.structuredContent).toBeUndefined();
       expect(requests.some((request) => request.method === "POST")).toBe(false);
     }
   );
@@ -493,6 +529,7 @@ describe("tool calls", () => {
       arguments: { unique_key: "NOT-A-KEY" },
     });
     expect(result.isError).toBe(true);
+    expect(result.structuredContent).toBeUndefined();
     expect(requests).toHaveLength(0);
   });
 });

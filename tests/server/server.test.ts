@@ -185,7 +185,8 @@ async function oauthFlow(
   service: RunningService,
   requestedScope = "mcp:read offline_access",
   effectiveScope: "read" | "read+write" = "read",
-  handoffControl?: { started(): void; wait: Promise<void> }
+  handoffControl?: { started(): void; wait: Promise<void> },
+  clientState = "client-state"
 ): Promise<OAuthResult> {
   const register = await request(service, "/register", {
     method: "POST",
@@ -208,7 +209,7 @@ async function oauthFlow(
     client_id: clientId,
     redirect_uri: "http://127.0.0.1:49152/callback",
     scope: requestedScope,
-    state: "client-state",
+    state: clientState,
     code_challenge: await sha256Challenge(verifier),
     code_challenge_method: "S256",
     resource: RESOURCE,
@@ -277,7 +278,7 @@ async function oauthFlow(
   ).toBe(false);
   const clientRedirect = new URL(callbackLocation!);
   expect(clientRedirect.origin + clientRedirect.pathname).toBe("http://127.0.0.1:49152/callback");
-  expect(clientRedirect.searchParams.get("state")).toBe("client-state");
+  expect(clientRedirect.searchParams.get("state")).toBe(clientState);
   const authorizationCode = clientRedirect.searchParams.get("code")!;
 
   const wrong = await request(service, "/token", {
@@ -504,6 +505,12 @@ describe("route and metadata policy", () => {
 });
 
 describe("OAuth and MCP integration", () => {
+  it("round-trips OpenAI's 521-character authorization state", async () => {
+    const service = await start();
+
+    await oauthFlow(service, "mcp:read mcp:write", "read+write", undefined, "s".repeat(521));
+  });
+
   it("enforces PKCE/resource binding, encrypts handoff, refreshes, and exposes three read tools", async () => {
     const service = await start();
     const flow = await oauthFlow(service, "mcp:read mcp:write offline_access", "read");
@@ -729,6 +736,45 @@ describe("OAuth and MCP integration", () => {
     expect(duplicate.status).toBe(303);
     expect(new URL(duplicate.headers.get("Location")!).searchParams.get("error")).toBe(
       "invalid_target"
+    );
+
+    const withoutState = new URL(authorize);
+    withoutState.searchParams.delete("state");
+    const missingState = await request(
+      service,
+      `${withoutState.pathname}${withoutState.search}`,
+      {},
+      flow.cookies
+    );
+    expect(missingState.status).toBe(303);
+    expect(new URL(missingState.headers.get("Location")!).searchParams.get("error")).toBe(
+      "invalid_request"
+    );
+
+    const maximumState = new URL(authorize);
+    maximumState.searchParams.set("state", "s".repeat(2_048));
+    const maximum = await request(
+      service,
+      `${maximumState.pathname}${maximumState.search}`,
+      {},
+      flow.cookies
+    );
+    expect(maximum.status).toBe(303);
+    const maximumLocation = new URL(maximum.headers.get("Location")!, ISSUER);
+    expect(maximumLocation.origin).toBe(ISSUER);
+    expect(maximumLocation.pathname).toBe("/oauth/callback");
+
+    const oversizedState = new URL(authorize);
+    oversizedState.searchParams.set("state", "s".repeat(2_049));
+    const oversized = await request(
+      service,
+      `${oversizedState.pathname}${oversizedState.search}`,
+      {},
+      flow.cookies
+    );
+    expect(oversized.status).toBe(303);
+    expect(new URL(oversized.headers.get("Location")!).searchParams.get("error")).toBe(
+      "invalid_request"
     );
 
     const response = await request(

@@ -41,6 +41,8 @@ export interface OAuthService {
   handleInteraction(req: IncomingMessage, res: ServerResponse, url: URL): Promise<void>;
 }
 
+const MAX_OAUTH_STATE_LENGTH = 2_048;
+
 function stringParam(interaction: Interaction, name: string): string | undefined {
   const value = interaction.params[name];
   return typeof value === "string" ? value : undefined;
@@ -58,7 +60,7 @@ function validateAuthorizationInteraction(interaction: Interaction, resource: st
     !clientId ||
     clientId.length > 200 ||
     !clientState ||
-    clientState.length > 500 ||
+    clientState.length > MAX_OAUTH_STATE_LENGTH ||
     stringParam(interaction, "code_challenge_method") !== "S256" ||
     !challenge ||
     challenge.length < 43 ||

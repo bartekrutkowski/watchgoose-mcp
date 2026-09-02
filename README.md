@@ -13,6 +13,8 @@ Registration:
 https://mcp.watchgoose.com/mcp
 ```
 
+Watchgoose is [listed in the Claude connector directory](https://claude.ai/directory/watchgoose).
+
 In Claude, open **Settings > Connectors** and add the endpoint as a custom connector. For Claude
 Code, run:
 
@@ -27,7 +29,7 @@ boundaries.
 ## Requirements
 
 - Node.js 20 or later
-- A project-scoped Watchgoose API key from **Project settings**
+- A project-scoped Watchgoose API key from **Project settings → API Access → Create (read-only)**
 
 Use an `hcr_` read-only key when you only need check state and status history. Use an `hcw_`
 read-write key when you also need pings, integrations, or check changes.

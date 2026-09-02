@@ -13,11 +13,40 @@ describe("stdio executable", () => {
     );
   });
 
-  it("advertises the npm package version in the MCP handshake", () => {
+  it("keeps npm, MCP handshake, and Registry metadata aligned", () => {
     const packageJson = JSON.parse(readFileSync("packages/stdio/package.json", "utf8")) as {
+      name: string;
       version: string;
+      mcpName: string;
     };
+    const registry = JSON.parse(readFileSync("server.json", "utf8")) as {
+      name: string;
+      version: string;
+      packages: unknown[];
+    };
+
     expect(SERVER_VERSION).toBe(packageJson.version);
+    expect(packageJson.mcpName).toBe("io.github.bartekrutkowski/watchgoose-mcp");
+    expect(registry).toMatchObject({
+      name: packageJson.mcpName,
+      version: packageJson.version,
+      packages: [
+        {
+          registryType: "npm",
+          identifier: packageJson.name,
+          version: packageJson.version,
+          transport: { type: "stdio" },
+          environmentVariables: [
+            {
+              name: "WATCHGOOSE_API_KEY",
+              description: "Project-scoped Watchgoose API key: hcr_ read-only or hcw_ read-write.",
+              isRequired: true,
+              isSecret: true,
+            },
+          ],
+        },
+      ],
+    });
   });
 
   it("negotiates over clean stdout and exposes the classified tool set", async () => {

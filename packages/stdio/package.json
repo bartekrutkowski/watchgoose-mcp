@@ -1,6 +1,7 @@
 {
   "name": "watchgoose-mcp",
-  "version": "0.1.0",
+  "version": "0.1.1",
+  "mcpName": "io.github.bartekrutkowski/watchgoose-mcp",
   "description": "MCP server for managing and querying Watchgoose checks",
   "license": "MIT",
   "type": "module",

@@ -303,20 +303,19 @@ owner submits.
 ## Official MCP Registry
 
 `server.json` is the source payload. It uses the GitHub-authenticated namespace
-`io.github.bartekrutkowski/watchgoose`, advertises only the hosted Streamable HTTP endpoint, and
-does not claim an unpublished npm package.
+`io.github.bartekrutkowski/watchgoose-mcp`, matching both the repository and npm package name. It
+advertises the hosted Streamable HTTP endpoint and the exact `watchgoose-mcp@0.1.1` stdio package.
 
 After the live acceptance checks:
 
 ```shell
 mcp-publisher login github
 mcp-publisher publish
-curl -fsS "https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.bartekrutkowski/watchgoose"
+curl -fsS "https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.bartekrutkowski/watchgoose-mcp"
 ```
 
-Before publishing, validate `server.json` against the schema URL in its `$schema` field and confirm
-the registry remains in preview. A later npm publication requires a separately reviewed `packages`
-entry and matching package verification metadata; do not add it speculatively.
+Before publishing, validate `server.json` against the schema URL in its `$schema` field, confirm the
+registry remains in preview, and require `watchgoose-mcp@0.1.1` to be live on npm first.
 
 ## Aggregator payloads
 
@@ -388,6 +387,7 @@ or unregistered, leave DNS unchanged.
 4. Publish the reviewed T-153 documentation, privacy copy, and icon.
 5. Regenerate and submit the canonical IndexNow inventory after the documentation deploy.
 6. Capture redacted evidence and provision the time-bounded reviewer account.
-7. Submit to Claude first, then the official MCP Registry and selected aggregators.
+7. Submit to Claude first. After it is published, publish and verify `watchgoose-mcp@0.1.1` on npm,
+   then publish the official MCP Registry record and selected aggregators.
 8. Record every accepted, rejected, or pending listing in the canonical owner workbook.
 9. Apply no DNS-AID MCP record unless revalidation resolves the draft and registration blockers.

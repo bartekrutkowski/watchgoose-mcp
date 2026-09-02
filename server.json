@@ -1,6 +1,6 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
-  "name": "io.github.bartekrutkowski/watchgoose",
+  "name": "io.github.bartekrutkowski/watchgoose-mcp",
   "title": "Watchgoose",
   "description": "Monitor cron jobs and recurring work through a project-scoped Watchgoose connection.",
   "websiteUrl": "https://watchgoose.com/docs/mcp/",
@@ -8,7 +8,7 @@
     "url": "https://github.com/bartekrutkowski/watchgoose-mcp",
     "source": "github"
   },
-  "version": "0.1.0",
+  "version": "0.1.1",
   "icons": [
     {
       "src": "https://watchgoose.com/static/img/watchgoose-mcp.svg",
@@ -19,6 +19,24 @@
       "src": "https://watchgoose.com/static/img/watchgoose-icon-512.png",
       "mimeType": "image/png",
       "sizes": ["512x512"]
+    }
+  ],
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "watchgoose-mcp",
+      "version": "0.1.1",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "WATCHGOOSE_API_KEY",
+          "description": "Project-scoped Watchgoose API key: hcr_ read-only or hcw_ read-write.",
+          "isRequired": true,
+          "isSecret": true
+        }
+      ]
     }
   ],
   "remotes": [

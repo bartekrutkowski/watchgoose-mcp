@@ -42,6 +42,12 @@ describe("stdio executable", () => {
         "get_check",
         "list_flips",
       ]);
+      for (const tool of listed.tools) {
+        expect(tool.outputSchema).toMatchObject({
+          type: "object",
+          additionalProperties: false,
+        });
+      }
     } finally {
       await client.close();
     }

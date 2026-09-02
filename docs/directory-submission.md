@@ -246,9 +246,10 @@ contradicts the published guidance.
 
 ### Response-field inventory
 
-Every success is one MCP text block containing serialized JSON. List results include
-`meta.returned`, `meta.available_in_response`, `meta.omitted`, `meta.truncated`, and, only when
-user-controlled strings were shortened, `meta.truncated_fields`. Object results may include only
+Every success returns schema-valid `structuredContent` and one MCP text block containing the exact
+same payload as serialized JSON for backward compatibility. List results include `meta.returned`,
+`meta.available_in_response`, `meta.omitted`, `meta.truncated`, and, only when user-controlled
+strings were shortened, `meta.truncated_fields`. Object results may include only
 `meta.truncated_fields: true`. The per-tool JSON payloads are:
 
 | Tool            | Top-level payload    | Item fields                                                     |

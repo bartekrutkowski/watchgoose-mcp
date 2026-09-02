@@ -1,11 +1,28 @@
 import { describe, expect, it } from "vitest";
 import { MAX_SERIALIZED_OUTPUT_CHARS } from "./constants.js";
-import { listToolResult, objectToolResult } from "./output.js";
+import { listToolResult, objectToolResult, type ToolResult } from "./output.js";
 import { deriveUniqueKey, sanitizeCheck, sanitizePing } from "./sanitize.js";
 
 const UUID = "12345678-1234-5678-9234-567812345678";
 
+function expectStructuredParity(result: ToolResult): string {
+  const block = result.content[0];
+  const text = block?.type === "text" ? block.text : "";
+  expect(result.structuredContent).toEqual(JSON.parse(text));
+  expect(JSON.stringify(result.structuredContent)).toBe(text);
+  return text;
+}
+
 describe("output sanitization", () => {
+  it("keeps structured output identical to JSON text", () => {
+    const result = listToolResult("pings", [{ duration: Infinity, n: -0 }], 10);
+    const text = expectStructuredParity(result);
+
+    expect(text).toBe(
+      '{"pings":[{"duration":null,"n":0}],"meta":{"returned":1,"available_in_response":1,"omitted":0,"truncated":false}}'
+    );
+  });
+
   it("derives stable unique keys and strips capability fields", async () => {
     expect(await deriveUniqueKey(UUID)).toBe("22fcf0cd2cf07841d4214d6a14b2b28c1e15be24");
     const check = await sanitizeCheck(
@@ -67,7 +84,7 @@ describe("output sanitization", () => {
       desc: "x".repeat(2_000),
     }));
     const result = listToolResult("checks", items, 100);
-    const text = result.content[0]!.type === "text" ? result.content[0]!.text : "";
+    const text = expectStructuredParity(result);
     expect(text.length).toBeLessThanOrEqual(MAX_SERIALIZED_OUTPUT_CHARS);
     const parsed = JSON.parse(text) as {
       checks: Array<{ desc: string }>;
@@ -106,7 +123,7 @@ describe("output sanitization", () => {
       Array.from({ length: 150 }, (_, index) => ({ index })),
       100
     );
-    const text = result.content[0]!.type === "text" ? result.content[0]!.text : "";
+    const text = expectStructuredParity(result);
     const parsed = JSON.parse(text) as {
       checks: unknown[];
       meta: { returned: number; omitted: number; truncated: boolean };
@@ -126,7 +143,7 @@ describe("output sanitization", () => {
       Array.from({ length: 100 }, (_, index) => ({ index, values: Array(1_000).fill(1) })),
       100
     );
-    const text = result.content[0]!.type === "text" ? result.content[0]!.text : "";
+    const text = expectStructuredParity(result);
     const parsed = JSON.parse(text) as {
       checks: unknown[];
       meta: { omitted: number; truncated: boolean; truncated_fields?: boolean };
@@ -188,15 +205,22 @@ describe("output sanitization", () => {
 
   it("caps oversized single-object output", () => {
     const result = objectToolResult("check", { desc: "x".repeat(30_000) });
-    const text = result.content[0]!.type === "text" ? result.content[0]!.text : "";
+    const text = expectStructuredParity(result);
     expect(text.length).toBeLessThanOrEqual(MAX_SERIALIZED_OUTPUT_CHARS);
     expect(text).toContain("truncated_fields");
+  });
+
+  it("keeps oversized-object errors text-only", () => {
+    const result = objectToolResult("check", { values: Array(24_000).fill(1) });
+
+    expect(result.isError).toBe(true);
+    expect(result.structuredContent).toBeUndefined();
   });
 
   it.each([23_999, 24_000])("preserves a %i-character serialized result", (length) => {
     const overhead = JSON.stringify({ check: { desc: "" } }).length;
     const result = objectToolResult("check", { desc: "x".repeat(length - overhead) });
-    const text = result.content[0]!.type === "text" ? result.content[0]!.text : "";
+    const text = expectStructuredParity(result);
     expect(text).toHaveLength(length);
     expect(text).not.toContain("truncated_fields");
   });
@@ -204,7 +228,7 @@ describe("output sanitization", () => {
   it("truncates a 24,001-character serialized result", () => {
     const overhead = JSON.stringify({ check: { desc: "" } }).length;
     const result = objectToolResult("check", { desc: "x".repeat(24_001 - overhead) });
-    const text = result.content[0]!.type === "text" ? result.content[0]!.text : "";
+    const text = expectStructuredParity(result);
     expect(text.length).toBeLessThanOrEqual(MAX_SERIALIZED_OUTPUT_CHARS);
     expect(text).toContain("truncated_fields");
   });

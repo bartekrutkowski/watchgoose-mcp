@@ -317,20 +317,19 @@ curl -fsS "https://registry.modelcontextprotocol.io/v0.1/servers?search=io.githu
 Before publishing, validate `server.json` against the schema URL in its `$schema` field, confirm the
 registry remains in preview, and require `watchgoose-mcp@0.1.1` to be live on npm first.
 
-## Aggregator payloads
+## Aggregator status
 
-Submit the same canonical facts to mcp.so, PulseMCP, and Glama only after revalidating their current
-forms and ingestion APIs. Smithery is blocked pending a live authentication compatibility check: its
-current hosted connection flow may require Client ID Metadata Documents, while Watchgoose currently
-supports Dynamic Client Registration. Do not claim Smithery compatibility or submit there unless
-Smithery confirms DCR support or a separately reviewed CIMD implementation lands.
+The selected aggregator sweep was completed on 2026-09-03. Revalidate each service before any later
+change rather than relying on this dated snapshot. Smithery removed its auto-listing, so do not
+resubmit there. Its hosted DCR/CIMD compatibility remains unverified secondary context, not a reason
+to implement CIMD without separately approved demand.
 
-| Directory | Status                            | Name or slug                | Endpoint                         | Auth              |
-| --------- | --------------------------------- | --------------------------- | -------------------------------- | ----------------- |
-| mcp.so    | Prepared; revalidate form         | `Watchgoose` / `watchgoose` | `https://mcp.watchgoose.com/mcp` | OAuth 2.1 + DCR   |
-| Smithery  | Blocked on DCR/CIMD compatibility | `Watchgoose` / `watchgoose` | `https://mcp.watchgoose.com/mcp` | Do not submit yet |
-| PulseMCP  | Prepared; revalidate form         | `Watchgoose` / `watchgoose` | `https://mcp.watchgoose.com/mcp` | OAuth 2.1 + DCR   |
-| Glama     | Prepared; revalidate form         | `Watchgoose` / `watchgoose` | `https://mcp.watchgoose.com/mcp` | OAuth 2.1 + DCR   |
+| Directory | Status as of 2026-09-03                                | Note                                                             |
+| --------- | ------------------------------------------------------ | ---------------------------------------------------------------- |
+| mcp.so    | Paid-only submission; skipped                          | No paid placement was purchased.                                 |
+| Smithery  | Auto-listing removed by platform                       | Do not submit. Hosted DCR/CIMD compatibility remains unverified. |
+| PulseMCP  | Closed to submissions                                  | Ingests the official MCP Registry.                               |
+| Glama     | Claimed; release 1.0.0; Install enabled; Maintenance A | Uses npm `watchgoose-mcp@0.1.1`; tool grades remain pending.     |
 
 Use this exact short description where a directory does not provide separate tagline and description
 fields:

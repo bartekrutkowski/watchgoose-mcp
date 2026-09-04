@@ -304,7 +304,7 @@ owner submits.
 
 `server.json` is the source payload. It uses the GitHub-authenticated namespace
 `io.github.bartekrutkowski/watchgoose-mcp`, matching both the repository and npm package name. It
-advertises the hosted Streamable HTTP endpoint and the exact `watchgoose-mcp@0.1.1` stdio package.
+advertises the hosted Streamable HTTP endpoint and the exact `watchgoose-mcp@0.1.2` stdio package.
 
 After the live acceptance checks:
 
@@ -315,7 +315,7 @@ curl -fsS "https://registry.modelcontextprotocol.io/v0.1/servers?search=io.githu
 ```
 
 Before publishing, validate `server.json` against the schema URL in its `$schema` field, confirm the
-registry remains in preview, and require `watchgoose-mcp@0.1.1` to be live on npm first.
+registry remains in preview, and require `watchgoose-mcp@0.1.2` to be live on npm first.
 
 ## Aggregator status
 
@@ -329,7 +329,14 @@ to implement CIMD without separately approved demand.
 | mcp.so    | Paid-only submission; skipped                          | No paid placement was purchased.                                 |
 | Smithery  | Auto-listing removed by platform                       | Do not submit. Hosted DCR/CIMD compatibility remains unverified. |
 | PulseMCP  | Closed to submissions                                  | Ingests the official MCP Registry.                               |
-| Glama     | Claimed; release 1.0.0; Install enabled; Maintenance A | Uses npm `watchgoose-mcp@0.1.1`; tool grades remain pending.     |
+| Glama     | Claimed; release 1.0.0; Install enabled; Maintenance A | Uses npm `watchgoose-mcp@0.1.1`; Parameters is 2/5.              |
+
+### Version 0.1.2 listing update
+
+After the reviewed 0.1.2 changes are merged, the owner publishes and verifies `watchgoose-mcp@0.1.2`
+on npm, republishes `server.json` to the official MCP Registry, runs a new Glama release, and
+confirms the Glama Parameters score is above 2/5. Update the dated aggregator table only after those
+live checks pass.
 
 Use this exact short description where a directory does not provide separate tagline and description
 fields:

@@ -13,6 +13,18 @@ describe("stdio executable", () => {
     );
   });
 
+  it("publishes the exact four-link availability block", () => {
+    const readme = readFileSync("README.md", "utf8");
+    const block = readme.split("### Available in\n\n", 2)[1]?.split("\n\nIn Claude", 1)[0];
+
+    expect(block).toBe(
+      "Watchgoose is [available in the Claude connector directory](https://claude.ai/directory/watchgoose).\n\n" +
+        "Watchgoose is\n[listed in ChatGPT plugins for GPT and Codex](https://chatgpt.com/plugins/plugin_asdk_app_6a95a3bd1df8819197ab3ccbf9269e8d).\n\n" +
+        "Watchgoose is\n[listed in the official MCP Registry](https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.bartekrutkowski/watchgoose-mcp).\n\n" +
+        "The [`watchgoose-mcp` package is available on npm](https://www.npmjs.com/package/watchgoose-mcp)."
+    );
+  });
+
   it("keeps npm, MCP handshake, and Registry metadata aligned", () => {
     const packageJson = JSON.parse(readFileSync("packages/stdio/package.json", "utf8")) as {
       name: string;
@@ -24,8 +36,13 @@ describe("stdio executable", () => {
       version: string;
       packages: unknown[];
     };
+    const lock = JSON.parse(readFileSync("package-lock.json", "utf8")) as {
+      packages: Record<string, { version?: string }>;
+    };
 
+    expect(packageJson.version).toBe("0.1.2");
     expect(SERVER_VERSION).toBe(packageJson.version);
+    expect(lock.packages["packages/stdio"]?.version).toBe(packageJson.version);
     expect(packageJson.mcpName).toBe("io.github.bartekrutkowski/watchgoose-mcp");
     expect(registry).toMatchObject({
       name: packageJson.mcpName,

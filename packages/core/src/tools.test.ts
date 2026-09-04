@@ -236,6 +236,92 @@ describe("tool visibility", () => {
     }
   });
 
+  it("describes every input parameter without changing required fields", async () => {
+    const { client } = await createHarness({ access: "read-write", enableWrites: true });
+    const listed = await client.listTools();
+    const writable = [
+      "name",
+      "slug",
+      "tags",
+      "desc",
+      "timeout",
+      "grace",
+      "schedule",
+      "tz",
+      "manual_resume",
+      "methods",
+      "channels",
+      "start_kw",
+      "success_kw",
+      "failure_kw",
+      "filter_subject",
+      "filter_body",
+      "filter_http_body",
+      "filter_default_fail",
+    ];
+    const expectedProperties: Record<string, string[]> = {
+      list_checks: ["slug", "tags", "limit"],
+      get_check: ["unique_key"],
+      list_pings: ["unique_key", "limit"],
+      list_flips: ["unique_key", "seconds", "start", "end", "limit"],
+      list_channels: ["limit"],
+      create_check: [...writable, "unique"],
+      update_check: ["unique_key", ...writable],
+      pause_check: ["unique_key"],
+      resume_check: ["unique_key"],
+      delete_check: ["unique_key"],
+    };
+    const optionalTools = new Set(["list_checks", "list_channels", "create_check"]);
+
+    for (const tool of listed.tools) {
+      const schema = tool.inputSchema as {
+        properties?: Record<string, { description?: string }>;
+        required?: string[];
+      };
+      const properties = schema.properties ?? {};
+      expect(schema).toMatchObject({ type: "object", additionalProperties: false });
+      expect(Object.keys(properties).sort(), tool.name).toEqual(
+        [...expectedProperties[tool.name]!].sort()
+      );
+      for (const [name, property] of Object.entries(properties)) {
+        expect(property.description?.trim().length, `${tool.name}.${name}`).toBeGreaterThan(0);
+      }
+      expect(schema.required ?? [], tool.name).toEqual(
+        optionalTools.has(tool.name) ? [] : ["unique_key"]
+      );
+    }
+
+    const schemas = Object.fromEntries(
+      listed.tools.map((tool) => [
+        tool.name,
+        tool.inputSchema as { properties: Record<string, Record<string, unknown>> },
+      ])
+    );
+    expect(schemas.list_checks!.properties.slug).toMatchObject({
+      type: "string",
+      maxLength: 100,
+      pattern: "^[a-z0-9_-]*$",
+    });
+    expect(schemas.list_checks!.properties.limit).toMatchObject({
+      type: "integer",
+      minimum: 1,
+      maximum: 100,
+    });
+    expect(schemas.create_check!.properties.timeout).toMatchObject({
+      type: "integer",
+      minimum: 60,
+      maximum: 31_536_000,
+    });
+    expect(schemas.create_check!.properties.methods).toMatchObject({
+      enum: ["", "POST"],
+    });
+    expect(schemas.create_check!.properties.unique).toMatchObject({ maxItems: 5 });
+    expect(schemas.list_flips!.properties.limit).toMatchObject({
+      minimum: 1,
+      maximum: 200,
+    });
+  });
+
   it("describes the list_flips binary status projection", async () => {
     const { client } = await createHarness({ access: "read-only" });
     const listed = await client.listTools();

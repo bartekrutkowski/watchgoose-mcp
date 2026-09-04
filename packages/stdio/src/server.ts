@@ -2,7 +2,7 @@ import { McpServer } from "@modelcontextprotocol/server";
 import { registerWatchgooseTools } from "@watchgoose/mcp-core";
 import type { StdioConfig } from "./config.js";
 
-export const SERVER_VERSION = "0.1.1";
+export const SERVER_VERSION = "0.1.2";
 
 export function createServer(config: StdioConfig): McpServer {
   const server = new McpServer({ name: "watchgoose-mcp", version: SERVER_VERSION });

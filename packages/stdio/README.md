@@ -13,7 +13,17 @@ Registration:
 https://mcp.watchgoose.com/mcp
 ```
 
-Watchgoose is [listed in the Claude connector directory](https://claude.ai/directory/watchgoose).
+### Available in
+
+Watchgoose is [available in the Claude connector directory](https://claude.ai/directory/watchgoose).
+
+Watchgoose is
+[listed in ChatGPT plugins for GPT and Codex](https://chatgpt.com/plugins/plugin_asdk_app_6a95a3bd1df8819197ab3ccbf9269e8d).
+
+Watchgoose is
+[listed in the official MCP Registry](https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.bartekrutkowski/watchgoose-mcp).
+
+The [`watchgoose-mcp` package is available on npm](https://www.npmjs.com/package/watchgoose-mcp).
 
 In Claude, open **Settings > Connectors** and add the endpoint as a custom connector. For Claude
 Code, run:

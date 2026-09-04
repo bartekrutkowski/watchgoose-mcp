@@ -8,7 +8,7 @@
     "url": "https://github.com/bartekrutkowski/watchgoose-mcp",
     "source": "github"
   },
-  "version": "0.1.1",
+  "version": "0.1.2",
   "icons": [
     {
       "src": "https://watchgoose.com/static/img/watchgoose-mcp.svg",
@@ -25,7 +25,7 @@
     {
       "registryType": "npm",
       "identifier": "watchgoose-mcp",
-      "version": "0.1.1",
+      "version": "0.1.2",
       "transport": {
         "type": "stdio"
       },

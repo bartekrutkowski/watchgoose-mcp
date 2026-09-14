@@ -179,3 +179,7 @@ CI.
 ## License
 
 MIT
+
+## Various badges
+
+[![MCP Badge](https://lobehub.com/badge/mcp/bartekrutkowski-watchgoose-mcp)](https://lobehub.com/mcp/bartekrutkowski-watchgoose-mcp)

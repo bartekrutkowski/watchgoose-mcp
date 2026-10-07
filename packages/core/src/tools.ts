@@ -343,12 +343,12 @@ export function registerWatchgooseTools(server: McpServer, options: WatchgooseTo
     {
       title: "Create a Watchgoose check",
       description:
-        "Create a simple timeout check or a cron/OnCalendar schedule check. All fields are optional; schedule takes precedence over timeout. The new check remains unarmed until its first successful ping.",
+        "Create a simple timeout check or a cron/OnCalendar schedule check. When unique fields match an existing check, update that check instead: supplied settings replace existing values, and channels: [] removes all alert integration assignments. Omitted fields on a matched check remain unchanged. All fields are optional; schedule takes precedence over timeout. Only newly created checks remain unarmed until their first successful ping.",
       inputSchema: createCheckInputSchema,
       outputSchema: getCheckOutputSchema,
       annotations: {
         readOnlyHint: false,
-        destructiveHint: false,
+        destructiveHint: true,
         idempotentHint: false,
         openWorldHint: false,
       },

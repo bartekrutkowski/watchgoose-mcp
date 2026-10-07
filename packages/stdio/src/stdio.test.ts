@@ -40,7 +40,7 @@ describe("stdio executable", () => {
       packages: Record<string, { version?: string }>;
     };
 
-    expect(packageJson.version).toBe("0.1.2");
+    expect(packageJson.version).toBe("0.1.3");
     expect(SERVER_VERSION).toBe(packageJson.version);
     expect(lock.packages["packages/stdio"]?.version).toBe(packageJson.version);
     expect(packageJson.mcpName).toBe("io.github.bartekrutkowski/watchgoose-mcp");
@@ -64,6 +64,38 @@ describe("stdio executable", () => {
         },
       ],
     });
+  });
+
+  it("advertises destructive upsert metadata from the bundled executable", async () => {
+    const transport = new StdioClientTransport({
+      command: process.execPath,
+      args: ["packages/stdio/dist/cli.js"],
+      cwd: process.cwd(),
+      env: {
+        ...getDefaultEnvironment(),
+        WATCHGOOSE_API_KEY: `hcw_${"w".repeat(28)}`,
+        WATCHGOOSE_ENABLE_WRITES: "true",
+      },
+      stderr: "pipe",
+    });
+    const client = new Client({ name: "stdio-write-metadata-test", version: "0.1.0" });
+    try {
+      await client.connect(transport);
+      const listed = await client.listTools();
+      const create = listed.tools.find((tool) => tool.name === "create_check");
+      expect(create?.annotations).toMatchObject({
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: false,
+        openWorldHint: false,
+      });
+      expect(create?.description).toContain("update that check instead");
+      expect(create?.description).toContain(
+        "channels: [] removes all alert integration assignments"
+      );
+    } finally {
+      await client.close();
+    }
   });
 
   it("negotiates over clean stdout and exposes the classified tool set", async () => {

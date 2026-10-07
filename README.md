@@ -143,6 +143,11 @@ UUIDs are used only inside the server and are not shown to the AI client.
 Integration assignments use exact integration names. Names must be non-empty and unique within the
 project.
 
+`create_check` is a create-or-update operation when `unique` is supplied: a matching existing check
+has its supplied settings replaced, while omitted fields remain unchanged. `channels: []` clears all
+alert integration assignments. It therefore advertises `destructiveHint: true`. Only newly created
+checks remain unarmed until their first successful ping.
+
 List results are capped at 100 checks, 100 pings, 200 flips, and 100 integrations. Every serialized
 tool result is also capped at 24,000 characters. Results include metadata when entries are omitted.
 

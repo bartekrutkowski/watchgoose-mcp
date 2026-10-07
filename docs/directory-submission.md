@@ -145,9 +145,12 @@ token never belongs in Git, screenshots, shell history, or review notes. The pro
 must receive the variable explicitly; Docker Compose does not automatically pass arbitrary host
 variables into a service.
 
-Run **Scan Tools** only after the reviewed revision and challenge are live. Scan Tools stores a
-submission-time metadata snapshot; calls continue to use the live server, but tool metadata changes
-require another scan, review, and publication. Compare the scan against source before submitting.
+Run **Scan Tools** only after the reviewed revision and challenge are live. For an already published
+plugin, OpenAI scans the hosted server daily and eligible tool updates go live after automated
+checks pass, without a new ZIP or separate publish action. After deployment, request a rescan from
+the **MCPs** view. A held update leaves the tool's previously approved metadata live; keep existing
+schemas compatible until the correction is accepted. Compare the scan against source.
+Initial-submission instructions below are historical context, not a new-submission mandate.
 
 ### Annotation justification
 
@@ -164,18 +167,18 @@ creates a four-annotation source/deployment difference until it is deployed. Bef
 Tools, capture the authorized read-write `tools/list` response and require all ten records to match
 the source test exactly, including `openWorldHint: false`.
 
-| Tool            | Read only | Destructive | Idempotent | Open world | Submission justification                                                                                                      |
-| --------------- | --------- | ----------- | ---------- | ---------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| `list_checks`   | Yes       | No          | Yes        | No         | Reads project checks only.                                                                                                    |
-| `get_check`     | Yes       | No          | Yes        | No         | Reads one project check only.                                                                                                 |
-| `list_pings`    | Yes       | No          | Yes        | No         | Reads retained signals only.                                                                                                  |
-| `list_flips`    | Yes       | No          | Yes        | No         | Reads retained status changes only.                                                                                           |
-| `list_channels` | Yes       | No          | Yes        | No         | Reads integration names and kinds only.                                                                                       |
-| `create_check`  | No        | No          | No         | No         | Creates a project check; retries can create another check. Any later notification is downstream check behavior.               |
-| `update_check`  | No        | Yes         | Yes        | No         | Replaces selected project-check settings and may remove existing values. Any later notification is downstream check behavior. |
-| `pause_check`   | No        | Yes         | Yes        | No         | Stops monitoring state for a project check. Any later notification is downstream check behavior.                              |
-| `resume_check`  | No        | Yes         | Yes        | No         | Restarts monitoring state for a project check. Any later notification is downstream check behavior.                           |
-| `delete_check`  | No        | Yes         | No         | No         | Permanently deletes a project check and retained history.                                                                     |
+| Tool            | Read only | Destructive | Idempotent | Open world | Submission justification                                                                                                                                                                                            |
+| --------------- | --------- | ----------- | ---------- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `list_checks`   | Yes       | No          | Yes        | No         | Reads project checks only.                                                                                                                                                                                          |
+| `get_check`     | Yes       | No          | Yes        | No         | Reads one project check only.                                                                                                                                                                                       |
+| `list_pings`    | Yes       | No          | Yes        | No         | Reads retained signals only.                                                                                                                                                                                        |
+| `list_flips`    | Yes       | No          | Yes        | No         | Reads retained status changes only.                                                                                                                                                                                 |
+| `list_channels` | Yes       | No          | Yes        | No         | Reads integration names and kinds only.                                                                                                                                                                             |
+| `create_check`  | No        | Yes         | No         | No         | Creates a check or updates an existing match through `unique`; supplied settings can replace existing values and `channels: []` can remove all alert assignments. Retries without a match can create another check. |
+| `update_check`  | No        | Yes         | Yes        | No         | Replaces selected project-check settings and may remove existing values. Any later notification is downstream check behavior.                                                                                       |
+| `pause_check`   | No        | Yes         | Yes        | No         | Stops monitoring state for a project check. Any later notification is downstream check behavior.                                                                                                                    |
+| `resume_check`  | No        | Yes         | Yes        | No         | Restarts monitoring state for a project check. Any later notification is downstream check behavior.                                                                                                                 |
+| `delete_check`  | No        | Yes         | No         | No         | Permanently deletes a project check and retained history.                                                                                                                                                           |
 
 ### Discovery and consent recommendation
 
@@ -301,6 +304,8 @@ successful Codex test. Rescan after any metadata change and revalidate every req
 owner submits.
 
 ## Official MCP Registry
+
+The 0.1.2 publication commands and aggregator snapshot below describe the previous release.
 
 `server.json` is the source payload. It uses the GitHub-authenticated namespace
 `io.github.bartekrutkowski/watchgoose-mcp`, matching both the repository and npm package name. It

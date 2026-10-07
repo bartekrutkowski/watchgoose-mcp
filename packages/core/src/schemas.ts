@@ -173,7 +173,7 @@ export const createCheckInputSchema = z
       .max(5)
       .optional()
       .describe(
-        'Fields used for upsert matching before creation: name, slug, tags, timeout, or grace; for example ["name"].'
+        'Match an existing check by these fields and update its supplied settings; otherwise create a new check. Supported fields: name, slug, tags, timeout, or grace; for example ["name"].'
       ),
   })
   .strict();

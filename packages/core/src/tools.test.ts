@@ -315,7 +315,11 @@ describe("tool visibility", () => {
     expect(schemas.create_check!.properties.methods).toMatchObject({
       enum: ["", "POST"],
     });
-    expect(schemas.create_check!.properties.unique).toMatchObject({ maxItems: 5 });
+    expect(schemas.create_check!.properties.unique).toMatchObject({
+      maxItems: 5,
+      description:
+        'Match an existing check by these fields and update its supplied settings; otherwise create a new check. Supported fields: name, slug, tags, timeout, or grace; for example ["name"].',
+    });
     expect(schemas.list_flips!.properties.limit).toMatchObject({
       minimum: 1,
       maximum: 200,
@@ -408,10 +412,10 @@ describe("tool visibility", () => {
         name: "create_check",
         title: "Create a Watchgoose check",
         description:
-          "Create a simple timeout check or a cron/OnCalendar schedule check. All fields are optional; schedule takes precedence over timeout. The new check remains unarmed until its first successful ping.",
+          "Create a simple timeout check or a cron/OnCalendar schedule check. When unique fields match an existing check, update that check instead: supplied settings replace existing values, and channels: [] removes all alert integration assignments. Omitted fields on a matched check remain unchanged. All fields are optional; schedule takes precedence over timeout. Only newly created checks remain unarmed until their first successful ping.",
         annotations: {
           readOnlyHint: false,
-          destructiveHint: false,
+          destructiveHint: true,
           idempotentHint: false,
           openWorldHint: false,
         },
@@ -477,6 +481,34 @@ describe("tool visibility", () => {
 });
 
 describe("tool calls", () => {
+  it("preserves upsert matching and converts empty integration assignments to the API clearing value", async () => {
+    const { client, requests } = await createHarness({ access: "read-write", enableWrites: true });
+    const result = await client.callTool({
+      name: "create_check",
+      arguments: {
+        name: "Nightly backup",
+        unique: ["name"],
+        channels: [],
+        timeout: 86_400,
+      },
+    });
+
+    expect(result.isError, textOf(result)).not.toBe(true);
+    expectStructuredParity(result);
+    expect(requests.map(({ method, pathname, body }) => ({ method, pathname, body }))).toEqual([
+      {
+        method: "POST",
+        pathname: "/api/v3/checks/",
+        body: {
+          name: "Nightly backup",
+          unique: ["name"],
+          channels: "",
+          timeout: 86_400,
+        },
+      },
+    ]);
+  });
+
   it("executes and sanitizes every tool through MCP", async () => {
     const { client, requests } = await createHarness({ access: "read-write", enableWrites: true });
     await client.listTools();

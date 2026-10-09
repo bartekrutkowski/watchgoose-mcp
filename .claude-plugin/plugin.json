@@ -1,0 +1,9 @@
+{
+  "name": "watchgoose-monitoring",
+  "version": "0.1.0",
+  "description": "Audit scheduled-job monitoring coverage, draft check setup, and triage Watchgoose status history.",
+  "author": { "name": "Watchgoose.com", "url": "https://watchgoose.com/" },
+  "homepage": "https://watchgoose.com/docs/mcp/",
+  "repository": "https://github.com/bartekrutkowski/watchgoose-mcp",
+  "license": "MIT"
+}

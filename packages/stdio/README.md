@@ -144,9 +144,12 @@ Integration assignments use exact integration names. Names must be non-empty and
 project.
 
 `create_check` is a create-or-update operation when `unique` is supplied: a matching existing check
-has its supplied settings replaced, while omitted fields remain unchanged. `channels: []` clears all
-alert integration assignments. It therefore advertises `destructiveHint: true`. Only newly created
-checks remain unarmed until their first successful ping.
+has its supplied settings replaced. `timeout` without `schedule` also switches a scheduled check to
+interval monitoring: the stored schedule string remains, but no longer governs cadence. Include the
+confirmed schedule to retain scheduled monitoring. Other omitted settings remain unchanged.
+`channels: []` clears all alert integration assignments. The tool therefore advertises
+`destructiveHint: true`. A new check awaits success/failure for completion-based cadence; a first
+failure can move it down. An optional start ping can initiate runtime monitoring before completion.
 
 List results are capped at 100 checks, 100 pings, 200 flips, and 100 integrations. Every serialized
 tool result is also capped at 24,000 characters. Results include metadata when entries are omitted.
@@ -166,6 +169,15 @@ tool result is also capped at 24,000 characters. Results include metadata when e
 Protect client configuration files that contain API keys. Prefer a dedicated project and the
 least-privileged key that exposes the tools you need. Revoke a key from Watchgoose project settings
 when it is no longer in use.
+
+## Workflow skills
+
+The repository includes portable skills for auditing scheduled-job coverage, drafting single-job
+setup, triaging missed heartbeats, reviewing existing monitoring health, and proposing approved
+create-only batches from an audit, list or CSV. See the
+[skills guide](https://github.com/bartekrutkowski/watchgoose-mcp/blob/main/docs/skills.md) for local
+installation, examples, and safety boundaries. Skills do not grant additional access, automatically
+run jobs, or change the existing directory listings.
 
 ## Development
 

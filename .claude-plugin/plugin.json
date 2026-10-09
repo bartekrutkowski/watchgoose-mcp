@@ -5,5 +5,7 @@
   "author": { "name": "Watchgoose.com", "url": "https://watchgoose.com/" },
   "homepage": "https://watchgoose.com/docs/mcp/",
   "repository": "https://github.com/bartekrutkowski/watchgoose-mcp",
-  "license": "MIT"
+  "license": "MIT",
+  "icon": "./.claude-plugin/icon.png",
+  "privacyPolicyUrl": "https://watchgoose.com/legal/privacy/"
 }

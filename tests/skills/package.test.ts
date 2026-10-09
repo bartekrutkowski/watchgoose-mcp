@@ -35,6 +35,14 @@ const metadata = {
   repository: z.url(),
   license: z.literal("MIT"),
 };
+const claudeMetadata = z
+  .object({
+    ...metadata,
+    icon: z.literal("./.claude-plugin/icon.png"),
+    privacyPolicyUrl: z.url({ protocol: /^https$/ }),
+  })
+  .strict();
+
 function json(path: string): unknown {
   return JSON.parse(readFileSync(path, "utf8"));
 }
@@ -83,11 +91,44 @@ describe("canonical skills and platform adapters", () => {
   });
 
   it("Claude discovers the canonical skills without copied instruction trees", () => {
-    z.object(metadata).strict().parse(json(".claude-plugin/plugin.json"));
+    claudeMetadata.parse(json(".claude-plugin/plugin.json"));
     const loadedNames = readdirSync(resolve(root, "skills")).filter((entry) =>
       existsSync(resolve(root, "skills", entry, "SKILL.md"))
     );
     expect(loadedNames.sort()).toEqual([...skillNames].sort());
+  });
+
+  it("Claude directory metadata rejects insecure URLs and undeclared fields", () => {
+    const input = json(".claude-plugin/plugin.json");
+    expect(claudeMetadata.safeParse(input).success).toBe(true);
+    const manifest = claudeMetadata.parse(input);
+    for (const invalid of [
+      { ...manifest, privacyPolicyUrl: "http://watchgoose.com/legal/privacy/" },
+      { ...manifest, icon: "../outside.png" },
+      { ...manifest, hooks: {} },
+    ]) {
+      expect(claudeMetadata.safeParse(invalid).success).toBe(false);
+    }
+    for (const field of ["icon", "privacyPolicyUrl"]) {
+      const missing: Record<string, unknown> = { ...manifest };
+      delete missing[field];
+      expect(claudeMetadata.safeParse(missing).success).toBe(false);
+    }
+  });
+
+  it("Claude's declared listing icon is bundled as a 512 by 512 PNG", () => {
+    const manifest = claudeMetadata.parse(json(".claude-plugin/plugin.json"));
+    const path = resolve(root, manifest.icon);
+    expect(existsSync(path)).toBe(true);
+    const png = readFileSync(path);
+    expect(png.length).toBeGreaterThan(33);
+    expect(png.length).toBeLessThan(2 * 1024 * 1024);
+    expect(png.subarray(0, 8)).toEqual(Buffer.from("89504e470d0a1a0a", "hex"));
+    expect(png.readUInt32BE(8)).toBe(13);
+    expect(png.subarray(12, 16).toString("ascii")).toBe("IHDR");
+    expect(png.readUInt32BE(16)).toBe(512);
+    expect(png.readUInt32BE(20)).toBe(512);
+    expect(png.subarray(-12)).toEqual(Buffer.from("0000000049454e44ae426082", "hex"));
   });
 
   it("portable metadata contains only supported identity fields and no auto-execution", () => {
@@ -99,7 +140,7 @@ describe("canonical skills and platform adapters", () => {
       })
       .strict()
       .parse(json("plugin.json"));
-    const claude = z.object(metadata).strict().parse(json(".claude-plugin/plugin.json"));
+    const claude = claudeMetadata.parse(json(".claude-plugin/plugin.json"));
     expect(portable.name).toBe(claude.name);
     expect(portable.version).toBe(claude.version);
     expect(existsSync("hooks")).toBe(false);

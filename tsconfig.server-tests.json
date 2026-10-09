@@ -8,5 +8,5 @@
     "rootDir": ".",
     "types": ["node", "vitest/globals"]
   },
-  "include": ["tests/server/**/*.ts"]
+  "include": ["tests/server/**/*.ts", "tests/skills/**/*.ts"]
 }

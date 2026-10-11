@@ -179,6 +179,12 @@ create-only batches from an audit, list or CSV. See the
 installation, examples, and safety boundaries. Skills do not grant additional access, automatically
 run jobs, or change the existing directory listings.
 
+The installable
+[monitoring plugin](https://github.com/bartekrutkowski/watchgoose-mcp/tree/main/plugins/watchgoose-monitoring)
+lives in `plugins/watchgoose-monitoring/`, with one canonical skill tree and remote-MCP adapters.
+Load that subfolder rather than the repository root; the old root plugin/skill paths are superseded
+without automatic migration of installed copies. The npm CLI and hosted endpoint remain unchanged.
+
 ## Development
 
 ```shell

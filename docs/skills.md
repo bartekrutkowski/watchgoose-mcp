@@ -13,24 +13,31 @@ access, run scheduled jobs, install instrumentation, or grant permission to writ
 
 ## Try the source locally
 
-The canonical instructions live in `skills/`. Each directory is self-contained; copy the entire
-chosen directory, including any referenced Markdown, rather than just `SKILL.md`.
+The canonical instructions live in `plugins/watchgoose-monitoring/skills/`. Each directory is
+self-contained; copy the entire chosen directory, including any referenced Markdown, rather than
+just `SKILL.md`.
+
+**Installation path migration:** load the `plugins/watchgoose-monitoring/` package, not the
+repository root. The old root plugin entry and root `skills/` paths are superseded; there is no
+compatibility shim or automatic migration of previously installed copies. The npm CLI and hosted
+endpoint are unchanged. Earlier Git revisions and ZIPs retain their original root layout as
+historical, immutable artifacts.
 
 For Claude Code, a local checkout can be loaded as a plugin for one session:
 
 ```shell
-claude --plugin-dir /path/to/watchgoose-mcp
+claude --plugin-dir /path/to/watchgoose-mcp/plugins/watchgoose-monitoring
 ```
 
-Claude discovers the canonical root `skills/` directory; `.mcp.json` references the hosted MCP
+Claude discovers `skills/` inside that package; the packaged `.mcp.json` references the hosted MCP
 endpoint. Connect/authenticate through the client's MCP controls if prompted. Organization policies
 and existing connector permissions still apply. Avoid enabling duplicate manually configured copies
 of the same server.
 
-For individual skill installation, copy a skill directory into your client's supported skills
-directory, for example `~/.claude/skills/` for Claude Code or `~/.agents/skills/` for Codex. Confirm
-the installed skill appears in that client. Individual skill installation does **not** automatically
-install/connect the MCP server. Follow the
+For individual skill installation, copy `plugins/watchgoose-monitoring/skills/<name>/` into your
+client's supported skills directory, for example `~/.claude/skills/` for Claude Code or
+`~/.agents/skills/` for Codex. Confirm the installed skill appears in that client. Individual skill
+installation does **not** automatically install/connect the MCP server. Follow the
 [existing connection guide](https://github.com/bartekrutkowski/watchgoose-mcp#watchgoose-mcp).
 
 **Contributors:** root `.mcp.json` also offers that hosted server as project-scoped configuration
@@ -41,7 +48,8 @@ OAuth consent still apply. This adapter does not grant writes by itself.
 For clients without repository access, supply only the authorized scheduling files or snippets. The
 audit cannot silently inspect your repository from a chat-only surface.
 
-The root `plugin.json` and `mcp.json` provide a portable Agent Plugins source adapter. Their
+The package's `plugin.json` and `mcp.json` provide a portable Agent Plugins source adapter. Target
+`plugins/watchgoose-monitoring/` for portable source installations, not the repository root. Their
 `watchgoose-monitoring@0.1.0` identifies this workflow bundle, not the npm/MCP server release.
 Client support and organization policies vary; local validation is not directory approval. This
 source adapter is **not** a verified replacement ZIP for the existing published OpenAI plugin.
@@ -162,8 +170,11 @@ Current format references:
 - [OpenAI existing-plugin updates](https://developers.openai.com/plugins/deploy/submission#update-your-published-plugin)
 
 To distribute through Claude's directory, maintain the existing connector and submit the missing
-companion bundle from the same organization, referencing the same endpoint. Directory listing does
-not guarantee inclusion in Anthropic's official Claude Code marketplace.
+companion bundle from the same organization, referencing the same endpoint. Use
+`plugins/watchgoose-monitoring` as the source **Plugin path** in the same repository. The package
+excludes the developer runtime, lockfile, tests and live-verification documentation, which remain
+maintained elsewhere in this repository. Directory listing does not guarantee inclusion in
+Anthropic's official Claude Code marketplace.
 
 For OpenAI, download the existing release ZIP and preserve its assigned identity, server
 configuration, metadata/assets, review materials and retained components. Merge the canonical skills

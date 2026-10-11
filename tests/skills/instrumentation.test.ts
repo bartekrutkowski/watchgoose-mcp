@@ -15,7 +15,10 @@ function runJob(
   configured: boolean | "empty" = true,
   command?: string[]
 ) {
-  const doc = readFileSync("skills/watchgoose-monitor-scheduled-job/instrumentation.md", "utf8");
+  const doc = readFileSync(
+    "plugins/watchgoose-monitoring/skills/watchgoose-monitor-scheduled-job/instrumentation.md",
+    "utf8"
+  );
   const shell = doc.match(/```sh\n([\s\S]*?)\n```/)?.[1];
   expect(shell, "the referenced draft must include a runnable POSIX shell example").toBeTruthy();
   const dir = mkdtempSync(join(tmpdir(), "watchgoose-wrapper-"));

@@ -59,7 +59,7 @@ surrounding unconditional execution or success/failure logic.
 
 ## Single-line evidence
 
-`curl "$WATCHGOOSE_PING_URL"` → **heartbeat line observed; surrounding success/failure logic
+Heartbeat-URL environment reference → **heartbeat line observed; surrounding success/failure logic
 unknown**. Never label execution "unconditional" from a single-line snippet. Say "1 of 4 items in
 this response," not "the project has four checks." Uncertainty belongs in the verdict, not just a
 footnote.

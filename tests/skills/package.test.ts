@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync, readdirSync } from "node:fs";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import * as z from "zod/v4";
@@ -13,6 +13,7 @@ import {
 import { sanitizeCheck, sanitizePing } from "../../packages/core/src/sanitize.js";
 
 const root = process.cwd();
+const pluginRoot = resolve(root, "plugins", "watchgoose-monitoring");
 const skillNames = [
   "watchgoose-cron-coverage-audit",
   "watchgoose-monitor-scheduled-job",
@@ -47,8 +48,34 @@ function json(path: string): unknown {
   return JSON.parse(readFileSync(path, "utf8"));
 }
 
+function pluginJson(path: string): unknown {
+  return json(resolve(pluginRoot, path));
+}
+
+function packageFiles(directory: string, prefix = ""): string[] {
+  return readdirSync(directory).flatMap((name) => {
+    const path = resolve(directory, name);
+    const local = prefix ? `${prefix}/${name}` : name;
+    const stat = lstatSync(path);
+    expect(stat.isSymbolicLink(), `symbolic link: ${local}`).toBe(false);
+    if (stat.isDirectory()) return packageFiles(path, local);
+    expect(stat.isFile(), `not a regular file: ${local}`).toBe(true);
+    expect(stat.mode & 0o111, `executable file: ${local}`).toBe(0);
+    return [local];
+  });
+}
+
+function canonicalSkillFiles(directory: string): string[] {
+  return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+    if ([".git", "node_modules", "dist"].includes(entry.name)) return [];
+    const path = resolve(directory, entry.name);
+    if (entry.isDirectory()) return canonicalSkillFiles(path);
+    return entry.name === "SKILL.md" ? [path] : [];
+  });
+}
+
 function parsedSkill(skillName: string) {
-  const path = resolve(root, "skills", skillName, "SKILL.md");
+  const path = resolve(pluginRoot, "skills", skillName, "SKILL.md");
   const text = readFileSync(path, "utf8");
   const match = text.match(/^---\n([\s\S]*?)\n---\n([\s\S]+)$/);
   expect(match, "skill must have bounded YAML frontmatter and a body").toBeTruthy();
@@ -76,6 +103,56 @@ function parsedSkill(skillName: string) {
 }
 
 describe("canonical skills and platform adapters", () => {
+  it("the installable folder contains only the declared plugin payload", () => {
+    expect(existsSync(pluginRoot)).toBe(true);
+    expect(packageFiles(pluginRoot).sort()).toEqual(
+      [
+        ".claude-plugin/icon.png",
+        ".claude-plugin/plugin.json",
+        ".mcp.json",
+        "LICENSE",
+        "README.md",
+        "mcp.json",
+        "plugin.json",
+        "skills/watchgoose-batch-monitor-scheduled-jobs/SKILL.md",
+        "skills/watchgoose-batch-monitor-scheduled-jobs/proposal.md",
+        "skills/watchgoose-cron-coverage-audit/SKILL.md",
+        "skills/watchgoose-missed-run-triage/SKILL.md",
+        "skills/watchgoose-monitor-scheduled-job/SKILL.md",
+        "skills/watchgoose-monitor-scheduled-job/contracts.md",
+        "skills/watchgoose-monitor-scheduled-job/instrumentation.md",
+        "skills/watchgoose-monitoring-health-review/SKILL.md",
+      ].sort()
+    );
+  });
+
+  it("the migrated package has no second repository-root plugin or skill tree", () => {
+    for (const entry of ["skills", ".claude-plugin", "plugin.json", "mcp.json"])
+      expect(existsSync(resolve(root, entry)), `legacy duplicate: ${entry}`).toBe(false);
+    expect(canonicalSkillFiles(root).sort()).toEqual(
+      skillNames.map((name) => resolve(pluginRoot, "skills", name, "SKILL.md")).sort()
+    );
+  });
+
+  it("the packaged MCP adapter is byte-identical to the contributor config", () => {
+    expect(existsSync(resolve(pluginRoot, ".mcp.json"))).toBe(true);
+    expect(readFileSync(resolve(pluginRoot, ".mcp.json"), "utf8")).toBe(
+      readFileSync(resolve(root, ".mcp.json"), "utf8")
+    );
+  });
+
+  it("the standalone package includes a license and directory-readable README", () => {
+    expect(existsSync(resolve(pluginRoot, "LICENSE"))).toBe(true);
+    expect(readFileSync(resolve(pluginRoot, "LICENSE"), "utf8")).toBe(
+      readFileSync(resolve(root, "LICENSE"), "utf8")
+    );
+    const prose = readFileSync(resolve(pluginRoot, "README.md"), "utf8").replace(
+      /```[\s\S]*?```/g,
+      ""
+    );
+    expect(prose.trim().split(/\s+/).length).toBeGreaterThanOrEqual(40);
+  });
+
   it.each(skillNames)("%s is individually loadable with contained references", (skillName) => {
     const skill = parsedSkill(skillName);
     expect(skill.body.trim().split(/\s+/).length).toBeLessThanOrEqual(500);
@@ -91,15 +168,15 @@ describe("canonical skills and platform adapters", () => {
   });
 
   it("Claude discovers the canonical skills without copied instruction trees", () => {
-    claudeMetadata.parse(json(".claude-plugin/plugin.json"));
-    const loadedNames = readdirSync(resolve(root, "skills")).filter((entry) =>
-      existsSync(resolve(root, "skills", entry, "SKILL.md"))
+    claudeMetadata.parse(pluginJson(".claude-plugin/plugin.json"));
+    const loadedNames = readdirSync(resolve(pluginRoot, "skills")).filter((entry) =>
+      existsSync(resolve(pluginRoot, "skills", entry, "SKILL.md"))
     );
     expect(loadedNames.sort()).toEqual([...skillNames].sort());
   });
 
   it("Claude directory metadata rejects insecure URLs and undeclared fields", () => {
-    const input = json(".claude-plugin/plugin.json");
+    const input = pluginJson(".claude-plugin/plugin.json");
     expect(claudeMetadata.safeParse(input).success).toBe(true);
     const manifest = claudeMetadata.parse(input);
     for (const invalid of [
@@ -117,8 +194,8 @@ describe("canonical skills and platform adapters", () => {
   });
 
   it("Claude's declared listing icon is bundled as a 512 by 512 PNG", () => {
-    const manifest = claudeMetadata.parse(json(".claude-plugin/plugin.json"));
-    const path = resolve(root, manifest.icon);
+    const manifest = claudeMetadata.parse(pluginJson(".claude-plugin/plugin.json"));
+    const path = resolve(pluginRoot, manifest.icon);
     expect(existsSync(path)).toBe(true);
     const png = readFileSync(path);
     expect(png.length).toBeGreaterThan(33);
@@ -139,12 +216,12 @@ describe("canonical skills and platform adapters", () => {
         keywords: z.array(z.string()),
       })
       .strict()
-      .parse(json("plugin.json"));
-    const claude = claudeMetadata.parse(json(".claude-plugin/plugin.json"));
+      .parse(pluginJson("plugin.json"));
+    const claude = claudeMetadata.parse(pluginJson(".claude-plugin/plugin.json"));
     expect(portable.name).toBe(claude.name);
     expect(portable.version).toBe(claude.version);
-    expect(existsSync("hooks")).toBe(false);
-    expect(existsSync(".app.json")).toBe(false);
+    expect(existsSync(resolve(pluginRoot, "hooks"))).toBe(false);
+    expect(existsSync(resolve(pluginRoot, ".app.json"))).toBe(false);
   });
 
   it("the skills' constrained payload vocabulary and bounds match the actual MCP schemas", () => {
@@ -234,7 +311,10 @@ describe("canonical skills and platform adapters", () => {
   });
 
   it("the setup reference's executable input examples validate against the real creation schema", () => {
-    const guide = readFileSync("skills/watchgoose-monitor-scheduled-job/contracts.md", "utf8");
+    const guide = readFileSync(
+      resolve(pluginRoot, "skills/watchgoose-monitor-scheduled-job/contracts.md"),
+      "utf8"
+    );
     const examples = [...guide.matchAll(/```json\n([\s\S]*?)\n```/g)];
     expect(examples).toHaveLength(2);
     for (const example of examples) {
@@ -245,7 +325,7 @@ describe("canonical skills and platform adapters", () => {
 
   it("the batch proposal example supplies only valid plain-new creation inputs", () => {
     const guide = readFileSync(
-      "skills/watchgoose-batch-monitor-scheduled-jobs/proposal.md",
+      resolve(pluginRoot, "skills/watchgoose-batch-monitor-scheduled-jobs/proposal.md"),
       "utf8"
     );
     const blocks = [...guide.matchAll(/```json\n([\s\S]*?)\n```/g)];
@@ -297,7 +377,7 @@ describe("canonical skills and platform adapters", () => {
           .strict(),
       })
       .strict()
-      .parse(json(".mcp.json"));
+      .parse(pluginJson(".mcp.json"));
     const portable = z
       .object({
         $schema: z.literal("https://agent-plugins.org/schemas/1.0.0/mcp.schema.json"),
@@ -306,7 +386,7 @@ describe("canonical skills and platform adapters", () => {
           .strict(),
       })
       .strict()
-      .parse(json("mcp.json"));
+      .parse(pluginJson("mcp.json"));
     expect(portable.mcpServers.watchgoose.url).toBe(claude.mcpServers.watchgoose.url);
   });
 });

@@ -7,7 +7,11 @@ description:
 
 # Audit scheduled-job coverage
 
-Produce an evidence-backed monitoring plan, not a clean bill of health from a name match.
+Report evidence and read-only questions, never wrapper/heartbeat drafts or synthetic job/ping tests.
+
+Instrumentation handoff: request a separate `watchgoose-monitor-scheduled-job` workflow using its
+reviewed reference if available; otherwise say guidance is unavailable. The request is
+instrumentation-only; no test requests, commands or verification promises.
 
 ## Tool facts
 
@@ -41,8 +45,7 @@ Produce an evidence-backed monitoring plan, not a clean bill of health from a na
 
 ## Handoff
 
-Return these four labeled sections in order, even for a compact handoff; a single job gets a one-row
-table:
+Return four labeled sections in order; one job gets one row:
 
 1. **Scope and limitations:** inspected paths, connected-project boundary, missing access,
    truncation.
@@ -51,11 +54,8 @@ table:
 3. **Confirmed gaps versus unknowns:** insufficient evidence is **unknown**, not a confirmed gap.
    Distinguish absent instrumentation in inspected code from unverified deployment, linkage,
    timezone, or real execution.
-4. **Proposed plan:** settings/questions and user-run verification steps. No mutations.
-
-Example verdict: **candidate match, unverified linkage/timezone/deployment; partial project-query
-coverage; account totals unknown**. A supplied heartbeat line proves only that line exists, not
-surrounding unconditional execution or success/failure logic.
+4. **Proposed plan:** read-only evidence requests and questions; no mutations, test runs or
+   instrumentation.
 
 ## Single-line evidence
 

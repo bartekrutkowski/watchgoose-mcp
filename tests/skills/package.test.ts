@@ -41,6 +41,7 @@ const claudeMetadata = z
     ...metadata,
     icon: z.literal("./.claude-plugin/icon.png"),
     privacyPolicyUrl: z.url({ protocol: /^https$/ }),
+    termsOfServiceUrl: z.url({ protocol: /^https$/ }),
   })
   .strict();
 
@@ -181,16 +182,22 @@ describe("canonical skills and platform adapters", () => {
     const manifest = claudeMetadata.parse(input);
     for (const invalid of [
       { ...manifest, privacyPolicyUrl: "http://watchgoose.com/legal/privacy/" },
+      { ...manifest, termsOfServiceUrl: "http://watchgoose.com/legal/terms/" },
       { ...manifest, icon: "../outside.png" },
       { ...manifest, hooks: {} },
     ]) {
       expect(claudeMetadata.safeParse(invalid).success).toBe(false);
     }
-    for (const field of ["icon", "privacyPolicyUrl"]) {
+    for (const field of ["icon", "privacyPolicyUrl", "termsOfServiceUrl"]) {
       const missing: Record<string, unknown> = { ...manifest };
       delete missing[field];
       expect(claudeMetadata.safeParse(missing).success).toBe(false);
     }
+  });
+
+  it("Claude declares the Watchgoose service terms URL", () => {
+    const manifest = claudeMetadata.parse(pluginJson(".claude-plugin/plugin.json"));
+    expect(manifest.termsOfServiceUrl).toBe("https://watchgoose.com/legal/terms/");
   });
 
   it("Claude's declared listing icon is bundled as a 512 by 512 PNG", () => {
@@ -220,6 +227,7 @@ describe("canonical skills and platform adapters", () => {
     const claude = claudeMetadata.parse(pluginJson(".claude-plugin/plugin.json"));
     expect(portable.name).toBe(claude.name);
     expect(portable.version).toBe(claude.version);
+    expect(portable.description).toBe(claude.description);
     expect(existsSync(resolve(pluginRoot, "hooks"))).toBe(false);
     expect(existsSync(resolve(pluginRoot, ".app.json"))).toBe(false);
   });

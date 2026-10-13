@@ -35,6 +35,7 @@ const metadata = {
   homepage: z.url(),
   repository: z.url(),
   license: z.literal("MIT"),
+  keywords: z.array(z.string().refine((keyword) => keyword.trim().length > 0)).min(1),
 };
 const claudeMetadata = z
   .object({
@@ -195,6 +196,16 @@ describe("canonical skills and platform adapters", () => {
     }
   });
 
+  it("Claude metadata rejects missing or invalid discovery keywords", () => {
+    const manifest = claudeMetadata.parse(pluginJson(".claude-plugin/plugin.json"));
+    const missing: Record<string, unknown> = { ...manifest };
+    delete missing.keywords;
+    expect(claudeMetadata.safeParse(missing).success).toBe(false);
+    for (const keywords of [[], [""], [" "], [null], [1], "cron"]) {
+      expect(claudeMetadata.safeParse({ ...manifest, keywords }).success).toBe(false);
+    }
+  });
+
   it("Claude declares the Watchgoose service terms URL", () => {
     const manifest = claudeMetadata.parse(pluginJson(".claude-plugin/plugin.json"));
     expect(manifest.termsOfServiceUrl).toBe("https://watchgoose.com/legal/terms/");
@@ -220,7 +231,6 @@ describe("canonical skills and platform adapters", () => {
       .object({
         $schema: z.literal("https://agent-plugins.org/schemas/1.0.0/plugin.schema.json"),
         ...metadata,
-        keywords: z.array(z.string()),
       })
       .strict()
       .parse(pluginJson("plugin.json"));
@@ -228,6 +238,7 @@ describe("canonical skills and platform adapters", () => {
     expect(portable.name).toBe(claude.name);
     expect(portable.version).toBe(claude.version);
     expect(portable.description).toBe(claude.description);
+    expect(portable.keywords).toEqual(claude.keywords);
     expect(existsSync(resolve(pluginRoot, "hooks"))).toBe(false);
     expect(existsSync(resolve(pluginRoot, ".app.json"))).toBe(false);
   });

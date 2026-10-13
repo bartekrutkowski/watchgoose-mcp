@@ -43,6 +43,9 @@ const claudeMetadata = z
     icon: z.literal("./.claude-plugin/icon.png"),
     privacyPolicyUrl: z.url({ protocol: /^https$/ }),
     termsOfServiceUrl: z.url({ protocol: /^https$/ }),
+    displayName: z.literal("Watchgoose Monitoring"),
+    documentationUrl: z.url({ protocol: /^https$/ }),
+    supportUrl: z.url({ protocol: /^https$/ }),
   })
   .strict();
 
@@ -184,12 +187,21 @@ describe("canonical skills and platform adapters", () => {
     for (const invalid of [
       { ...manifest, privacyPolicyUrl: "http://watchgoose.com/legal/privacy/" },
       { ...manifest, termsOfServiceUrl: "http://watchgoose.com/legal/terms/" },
+      { ...manifest, documentationUrl: "http://watchgoose.com/docs/mcp/" },
+      { ...manifest, supportUrl: "mailto:support@watchgoose.com" },
       { ...manifest, icon: "../outside.png" },
       { ...manifest, hooks: {} },
     ]) {
       expect(claudeMetadata.safeParse(invalid).success).toBe(false);
     }
-    for (const field of ["icon", "privacyPolicyUrl", "termsOfServiceUrl"]) {
+    for (const field of [
+      "icon",
+      "privacyPolicyUrl",
+      "termsOfServiceUrl",
+      "displayName",
+      "documentationUrl",
+      "supportUrl",
+    ]) {
       const missing: Record<string, unknown> = { ...manifest };
       delete missing[field];
       expect(claudeMetadata.safeParse(missing).success).toBe(false);
@@ -209,6 +221,12 @@ describe("canonical skills and platform adapters", () => {
   it("Claude declares the Watchgoose service terms URL", () => {
     const manifest = claudeMetadata.parse(pluginJson(".claude-plugin/plugin.json"));
     expect(manifest.termsOfServiceUrl).toBe("https://watchgoose.com/legal/terms/");
+  });
+
+  it("Claude declares the Watchgoose listing documentation and support links", () => {
+    const manifest = claudeMetadata.parse(pluginJson(".claude-plugin/plugin.json"));
+    expect(manifest.documentationUrl).toBe("https://watchgoose.com/docs/mcp/");
+    expect(manifest.supportUrl).toBe("https://watchgoose.com/about/#about-faq-title");
   });
 
   it("Claude's declared listing icon is bundled as a 512 by 512 PNG", () => {

@@ -1,9 +1,11 @@
 {
   "name": "watchgoose-monitoring",
+  "displayName": "Watchgoose Monitoring",
   "version": "0.1.0",
   "description": "Audit cron and scheduled-job monitoring coverage, set up Watchgoose checks for one job or a batch, review monitoring health and triage missed runs.",
   "author": { "name": "Watchgoose.com", "url": "https://watchgoose.com/" },
   "homepage": "https://watchgoose.com/docs/mcp/",
+  "documentationUrl": "https://watchgoose.com/docs/mcp/",
   "repository": "https://github.com/bartekrutkowski/watchgoose-mcp",
   "license": "MIT",
   "keywords": [
@@ -19,5 +21,6 @@
   ],
   "icon": "./.claude-plugin/icon.png",
   "privacyPolicyUrl": "https://watchgoose.com/legal/privacy/",
-  "termsOfServiceUrl": "https://watchgoose.com/legal/terms/"
+  "termsOfServiceUrl": "https://watchgoose.com/legal/terms/",
+  "supportUrl": "https://watchgoose.com/about/#about-faq-title"
 }

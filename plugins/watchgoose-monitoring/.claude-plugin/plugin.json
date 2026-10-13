@@ -6,6 +6,17 @@
   "homepage": "https://watchgoose.com/docs/mcp/",
   "repository": "https://github.com/bartekrutkowski/watchgoose-mcp",
   "license": "MIT",
+  "keywords": [
+    "cron",
+    "cronjobs",
+    "jobs",
+    "scheduled",
+    "scheduled-jobs",
+    "recurring",
+    "backups",
+    "monitoring",
+    "watchgoose"
+  ],
   "icon": "./.claude-plugin/icon.png",
   "privacyPolicyUrl": "https://watchgoose.com/legal/privacy/",
   "termsOfServiceUrl": "https://watchgoose.com/legal/terms/"

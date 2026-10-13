@@ -7,8 +7,8 @@ description:
 
 # Triage a missed heartbeat
 
-Explain recorded signals, not a proven job outcome. Root cause stays **unestablished**; notification
-delivery is separate from heartbeat reception.
+Explain recorded signals, not proven job outcomes. Root cause **unestablished**; notification
+delivery differs from heartbeat reception.
 
 ## Read-only tool boundary
 
@@ -26,20 +26,20 @@ discovery, or ping-history time filter.
 
 ## Evidence labels
 
-| Field/type              | Report as                                                                                                       |
-| ----------------------- | --------------------------------------------------------------------------------------------------------------- |
-| Check `last_ping`       | Success/fail timestamp, never start/ign/log; identify type only from a matching returned completion.            |
-| Ping `success`          | Reported success signal, not independent proof the job succeeded.                                               |
-| Ping `fail`             | Explicit failure signal, not its cause or job exit code.                                                        |
-| Ping `start`            | Runtime-start marker; no completion returned suggests a possibly unfinished/overrunning run, not a proven hang. |
-| Ping `ign`              | Ignored for monitoring, e.g. pings while paused with `manual_resume`; not success/failure.                      |
-| Ping `log`              | Log-only event; does not advance monitoring or confirm completion.                                              |
-| Ping `duration`         | Server-reported seconds; do not infer missing duration or pair concurrent runs from adjacency.                  |
-| Flip `up: 0` / `status` | Recorded monitor transition/state, not proof no ping arrived or the job's exit status.                          |
+| Field/type        | Report as                                                                                                                       |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| Check `last_ping` | Success/fail timestamp, never start/ign/log; identify type only from a matching returned completion.                            |
+| Ping `success`    | Reported success signal, not independent proof the job succeeded.                                                               |
+| Ping `fail`       | Explicit failure signal, not its cause or job exit code.                                                                        |
+| Ping `start`      | Runtime-start marker; no completion returned suggests a possibly unfinished/overrunning run, not a proven hang.                 |
+| Ping `ign`        | Ignored for monitoring (e.g. paused+manual_resume/filtering), not success/failure or independent pause evidence.                |
+| Ping `log`        | Log-only event; does not advance monitoring or confirm completion.                                                              |
+| Ping `duration`   | Server-reported seconds; never infer missing durations.                                                                         |
+| Flip / `status`   | States/flips never prove missing pings, exit status or pause dates. Flips: timestamp/up only; 1 up, 0 non-up (down/paused/new). |
 
 Pings expose only `type`, `date`, `n`, `scheme`, `method`, `duration`; no bodies or correlation IDs.
-Sequence numbers order records, not identify runs. Run correlation stays unknown without run IDs,
-even with supplied duration; don't pair adjacent start/completion rows. Unknown types stay unknown.
+Sequence numbers order records, not identify runs. Correlation unknown without run IDs, even with
+duration; don't pair adjacent start/completion rows. Unknown types stay unknown.
 
 ## Workflow and handoff
 
@@ -49,13 +49,14 @@ even with supplied duration; don't pair adjacent start/completion rows. Unknown 
    **every** section. Report supplied observation timestamps only; calculated deadlines are
    estimates.
 3. Check `meta.truncated`, `meta.omitted`, `meta.truncated_fields`. Missing completion in bounded
-   history is not proof none exists. Tool errors are not check state; unavailable ping history
-   leaves type unknown. Response counts are not project/account totals.
-4. Keep states distinct: new has no processed success/fail; first fail can move it down. Paused is
-   paused even with zero pings; `manual_resume` blocks ping resumption while paused, not recovery of
-   an already-down check. Never resume during triage.
-5. Return **observed state → bounded timestamped timeline → unknowns/limitations → user-run
-   diagnostics**. Suggestions are not performed actions. Preserve uncertainty in the summary: root
-   cause unestablished. No "down since", missing-ping or flip-trigger inference from incomplete
-   history. Prefer full timestamps to elapsed-time arithmetic. Queries do not promise completeness;
-   older omitted pings are not later completions. No execution/delivery claims.
+   history isn't absence proof. Tool errors are not check state; unavailable ping history leaves
+   type unknown. Response counts are not project/account totals.
+4. Paused is not down/new, even with zero pings. `new` awaits completion cadence; pending starts can
+   trigger down. Resume sets `new`, clears `last_ping`, retains `n_pings`: positive counts may
+   include earlier success/fail. `n_pings` counts all types, not runs. First fail can move new down.
+   `manual_resume` blocks paused ping resumption, not down recovery. Never resume during triage.
+5. Findings are per-check; other job monitoring unknown. Return **observed state → bounded
+   timestamped timeline → unknowns/limitations → user-run diagnostics**. Suggestions aren't actions;
+   summaries preserve root-cause uncertainty. No state-since, missing-ping or flip-trigger inference
+   from incomplete history. Prefer full timestamps. Queries don't guarantee completeness; older
+   omitted pings are not later completions. No execution/delivery claims.

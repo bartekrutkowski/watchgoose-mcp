@@ -181,8 +181,9 @@ downloadable release ZIPs, so `distribution/openai/` rebuilds its package from s
 pins the dashboard's current listing values and package name, and `npm run build:openai-plugin` adds
 the canonical skills and icon. Upload the ZIP with **Upload new version** on that plugin; ZIP
 uploads keep the dashboard's plugin identity. The package deliberately omits review fields, which
-preserves the saved test cases and demo recording, and contains no `.app.json` or hooks, which
-OpenAI rejects. Skills/package updates and hosted-tool rescans are separate operations.
+preserves the saved test cases and demo recording, and contains no `.app.json`, hooks or MCP auth
+override, which OpenAI rejects for an existing app; authentication stays configured in the
+dashboard. Skills/package updates and hosted-tool rescans are separate operations.
 
 No listing, npm version, server deployment, or publication is changed merely by adding these source
 files. Public GitHub distribution and any skills.sh discovery happen only after a separately

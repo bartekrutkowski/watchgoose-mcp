@@ -5,6 +5,7 @@ export {
   MAX_RESPONSE_BYTES,
   MAX_SERIALIZED_OUTPUT_CHARS,
   RESULT_CAPS,
+  WATCHGOOSE_RELEASE_VERSION,
   type AccessLevel,
 } from "./constants.js";
 export { mapToolError } from "./errors.js";

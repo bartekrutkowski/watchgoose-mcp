@@ -1,0 +1,50 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "app-6a95a3bd1df8819197ab3ccbf9269e8d",
+  "version": "1.1.0",
+  "description": "Audit cron and scheduled-job monitoring coverage, set up Watchgoose checks for one job or a batch, review monitoring health and triage missed runs.",
+  "author": {
+    "name": "Watchgoose.com",
+    "url": "https://watchgoose.com/"
+  },
+  "homepage": "https://watchgoose.com/docs/mcp/",
+  "repository": "https://github.com/bartekrutkowski/watchgoose-mcp",
+  "license": "MIT",
+  "keywords": [
+    "cron",
+    "cronjobs",
+    "jobs",
+    "scheduled",
+    "scheduled-jobs",
+    "recurring",
+    "backups",
+    "monitoring",
+    "watchgoose"
+  ],
+  "extensions": {
+    "com.openai": {
+      "interface": {
+        "displayName": "Watchgoose",
+        "shortDescription": "Cron job monitoring & alerts",
+        "longDescription": "Watchgoose is cron job and heartbeat monitoring for scheduled tasks: cron jobs, systemd timers, Kubernetes CronJobs, backups and recurring scripts. When a job runs late, fails or never runs, Watchgoose alerts you through email, Slack, Discord, Telegram, PagerDuty, webhooks and more.\n\nConnect one Watchgoose project and ask about your monitoring in plain language: check status, schedules and status history, plus recent pings and alert integrations on read-and-write connections. Read-only access is the default. With explicit read-and-write consent you can also create, update, pause, resume and delete checks.\n\nFive built-in workflows:\n- Coverage audit: find scheduled jobs in a repository that have no monitoring.\n- Job setup: draft check settings and a heartbeat wrapper for one job.\n- Batch setup: create checks for many jobs after a single approval.\n- Health review: spot paused checks, checks still waiting for their first ping and checks without alert routing.\n- Missed-run triage: summarize what happened when a check goes down.\n\nThe workflows never run your jobs or send test pings, and nothing changes without your approval. Requires a Watchgoose account; you sign in when you connect.",
+        "developerName": "Pixeware LTD",
+        "category": "Developer Tools",
+        "capabilities": [],
+        "websiteURL": "https://watchgoose.com",
+        "supportURL": "https://watchgoose.com/docs/",
+        "privacyPolicyURL": "https://watchgoose.com/legal/privacy/",
+        "termsOfServiceURL": "https://watchgoose.com/legal/terms/",
+        "defaultPrompt": [
+          "Find cron jobs and scheduled tasks in this repository that have no Watchgoose monitoring.",
+          "Set up Watchgoose monitoring for my nightly database backup cron job.",
+          "Which of my Watchgoose checks are down or late, and what happened?"
+        ],
+        "composerIcon": "./assets/icon.png",
+        "logo": "./assets/icon.png"
+      },
+      "publication": {
+        "release_notes": "New monitoring workflows: coverage audit, job setup, batch setup, health review and missed-run triage."
+      }
+    }
+  }
+}

@@ -5,7 +5,7 @@ import {
   createMcpHandler,
   isLegacyRequest,
 } from "@modelcontextprotocol/server";
-import { registerWatchgooseTools } from "@watchgoose/mcp-core";
+import { registerWatchgooseTools, WATCHGOOSE_RELEASE_VERSION } from "@watchgoose/mcp-core";
 import type Provider from "oidc-provider";
 import type { ServerConfig } from "./config.js";
 import { MAX_MCP_REQUEST_BYTES } from "./constants.js";
@@ -96,7 +96,7 @@ function createMcpServer(
   scopes: Set<string>
 ): McpServer {
   const server = new McpServer(
-    { name: "watchgoose-mcp", version: "0.1.0" },
+    { name: "watchgoose-mcp", version: WATCHGOOSE_RELEASE_VERSION },
     { capabilities: { tools: { listChanged: false } } }
   );
   const canWrite = scopes.has("mcp:write") && credential.access === "read-write";

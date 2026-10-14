@@ -199,6 +199,12 @@ npm run publish:dry-run
 Production integration tests are opt-in and require dedicated test-project keys. They never run in
 CI.
 
+Every user-visible distribution shares one release version: the npm package, `server.json`, the
+hosted server, the Claude and portable plugin manifests and the OpenAI plugin. Bump
+`WATCHGOOSE_RELEASE_VERSION` in `packages/core/src/constants.ts` and the matching manifests
+together; `tests/skills/release-version.test.ts` fails if any of them disagree. The OpenAI upload
+ZIP is built with `npm run build:openai-plugin`.
+
 ## License
 
 MIT

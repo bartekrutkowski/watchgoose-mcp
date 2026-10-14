@@ -102,20 +102,6 @@ const mcpSchema = z
           .object({
             type: z.literal("streamable-http"),
             url: z.literal("https://mcp.watchgoose.com/mcp"),
-            extensions: z
-              .object({
-                "com.openai": z
-                  .object({
-                    auth: z
-                      .object({
-                        type: z.literal("oauth"),
-                        client: z.object({ mode: z.literal("dcr") }).strict(),
-                      })
-                      .strict(),
-                  })
-                  .strict(),
-              })
-              .strict(),
           })
           .strict(),
       })
@@ -162,7 +148,7 @@ describe("OpenAI plugin package", () => {
     expect(manifest.keywords).toEqual(portable.keywords);
   });
 
-  it("connects only to the existing hosted MCP endpoint with dynamic registration", () => {
+  it("reuses the existing hosted MCP connection without an auth override", () => {
     const mcp = mcpSchema.parse(json("distribution/openai/mcp.json"));
     const claude = json(resolve(pluginRoot, ".mcp.json")) as {
       mcpServers: Record<string, { url: string }>;

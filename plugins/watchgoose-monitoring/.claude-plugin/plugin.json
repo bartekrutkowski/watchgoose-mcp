@@ -1,7 +1,7 @@
 {
   "name": "watchgoose-monitoring",
   "displayName": "Watchgoose Monitoring",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Audit cron and scheduled-job monitoring coverage, set up Watchgoose checks for one job or a batch, review monitoring health and triage missed runs.",
   "author": { "name": "Watchgoose.com", "url": "https://watchgoose.com/" },
   "homepage": "https://watchgoose.com/docs/mcp/",
@@ -17,6 +17,11 @@
     "recurring",
     "backups",
     "monitoring",
+    "systemd",
+    "systemd-timers",
+    "kubernetes",
+    "kubernetes-cronjobs",
+    "heartbeat",
     "watchgoose"
   ],
   "icon": "./.claude-plugin/icon.png",

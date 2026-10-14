@@ -1,6 +1,6 @@
 {
   "name": "watchgoose-mcp-monorepo",
-  "version": "0.1.0",
+  "version": "1.1.0",
   "private": true,
   "type": "module",
   "workspaces": [
@@ -21,6 +21,7 @@
     "test:integration": "vitest run --config vitest.integration.config.ts",
     "typecheck": "tsc -b --pretty false && tsc --noEmit --pretty false -p tsconfig.integration.json && tsc --noEmit --pretty false -p tsconfig.server-tests.json",
     "typecheck:base": "tsc -b packages/core packages/stdio --pretty false && tsc --noEmit --pretty false -p tsconfig.integration.json",
+    "build:openai-plugin": "node scripts/build-openai-plugin.ts",
     "publish:dry-run": "npm publish --dry-run --workspace watchgoose-mcp"
   },
   "devDependencies": {

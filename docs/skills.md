@@ -50,9 +50,9 @@ audit cannot silently inspect your repository from a chat-only surface.
 
 The package's `plugin.json` and `mcp.json` provide a portable Agent Plugins source adapter. Target
 `plugins/watchgoose-monitoring/` for portable source installations, not the repository root. Their
-`watchgoose-monitoring@0.1.0` identifies this workflow bundle, not the npm/MCP server release.
-Client support and organization policies vary; local validation is not directory approval. This
-source adapter is **not** a verified replacement ZIP for the existing published OpenAI plugin.
+`watchgoose-monitoring@1.1.0` shares the single Watchgoose MCP release version. Client support and
+organization policies vary; local validation is not directory approval. The OpenAI upload ZIP is
+built separately with `npm run build:openai-plugin`; see `distribution/openai/`.
 
 ## Example requests
 
@@ -176,11 +176,13 @@ excludes the developer runtime, lockfile, tests and live-verification documentat
 maintained elsewhere in this repository. Directory listing does not guarantee inclusion in
 Anthropic's official Claude Code marketplace.
 
-For OpenAI, download the existing release ZIP and preserve its assigned identity, server
-configuration, metadata/assets, review materials and retained components. Merge the canonical skills
-and make the appropriately versioned update to that **existing listing**, not a new listing. Do not
-upload this local source manifest verbatim as a replacement without that comparison and the required
-review metadata. Skills/package updates and hosted-tool rescans are separate operations.
+For OpenAI, update the **existing listing**, not a new one. The published plugin predates
+downloadable release ZIPs, so `distribution/openai/` rebuilds its package from source: the manifest
+pins the dashboard's current listing values and package name, and `npm run build:openai-plugin` adds
+the canonical skills and icon. Upload the ZIP with **Upload new version** on that plugin; ZIP
+uploads keep the dashboard's plugin identity. The package deliberately omits review fields, which
+preserves the saved test cases and demo recording, and contains no `.app.json` or hooks, which
+OpenAI rejects. Skills/package updates and hosted-tool rescans are separate operations.
 
 No listing, npm version, server deployment, or publication is changed merely by adding these source
 files. Public GitHub distribution and any skills.sh discovery happen only after a separately

@@ -1,0 +1,14 @@
+{
+  "name": "watchgoose-monitoring",
+  "version": "1.1.2",
+  "description": "Audit cron and scheduled-job monitoring coverage, set up Watchgoose checks for one job or a batch, review monitoring health and triage missed runs.",
+  "mcpServers": {
+    "watchgoose": {
+      "httpUrl": "https://mcp.watchgoose.com/mcp",
+      "oauth": {
+        "enabled": true,
+        "scopes": ["mcp:read", "mcp:write", "offline_access"]
+      }
+    }
+  }
+}

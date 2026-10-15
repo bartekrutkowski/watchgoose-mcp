@@ -21,6 +21,16 @@ permissions apply. Avoid enabling duplicate manually configured copies of the sa
 can also work offline with supplied redacted files; other workflows disclose missing tools. Pings
 and routing metadata require existing broader access; guidance never expands it automatically.
 
+## Install
+
+The package is published as the root of
+[pixeware/watchgoose-plugin](https://github.com/pixeware/watchgoose-plugin) on each release:
+
+- Gemini CLI: `gemini extensions install https://github.com/pixeware/watchgoose-plugin`
+- Grok Build: `grok plugin install pixeware/watchgoose-plugin --trust`
+
+Then connect the `watchgoose` MCP server when your client asks and approve access in the browser.
+
 ## Network endpoints and credentials
 
 The plugin itself contacts one endpoint: the hosted MCP server at `https://mcp.watchgoose.com/mcp`.
@@ -51,3 +61,10 @@ boundaries and the [privacy policy](https://watchgoose.com/legal/privacy/) for d
 portable source adapter shares these same canonical skills; host support varies. Installing
 individual skills does not automatically connect MCP. Local validation is not native compatibility,
 directory approval or public publication. MIT licensed.
+
+## Support and privacy
+
+- Support: [support@watchgoose.com](mailto:support@watchgoose.com)
+- Documentation: [watchgoose.com/docs/mcp](https://watchgoose.com/docs/mcp/)
+- Privacy policy: [watchgoose.com/legal/privacy](https://watchgoose.com/legal/privacy/)
+- Terms of service: [watchgoose.com/legal/terms](https://watchgoose.com/legal/terms/)

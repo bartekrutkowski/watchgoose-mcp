@@ -50,15 +50,16 @@ audit cannot silently inspect your repository from a chat-only surface.
 
 The package's `plugin.json` and `mcp.json` provide a portable Agent Plugins source adapter. Target
 `plugins/watchgoose-monitoring/` for portable source installations, not the repository root. Their
-`watchgoose-monitoring@1.1.0` shares the single Watchgoose MCP release version. Client support and
+`watchgoose-monitoring` version shares the single Watchgoose MCP release version. Client support and
 organization policies vary; local validation is not directory approval. The OpenAI upload ZIP is
 built separately with `npm run build:openai-plugin`; see `distribution/openai/`.
 
-The same package also carries `.cursor-plugin/plugin.json` for Cursor and `.grok-plugin/plugin.json`
-for Grok Build. Both reuse the canonical skills and the packaged `.mcp.json`; the repository-root
-`.cursor-plugin/marketplace.json` points Cursor at the package. Both marketplaces install from a
-generated distribution repository built with `npm run build:distribution-repo`; submission steps are
-in [directory-submission.md](directory-submission.md).
+The same package also carries `.cursor-plugin/plugin.json` for Cursor, `.grok-plugin/plugin.json`
+for Grok Build and `gemini-extension.json` for Gemini CLI. Both reuse the canonical skills and the
+packaged `.mcp.json`; the repository-root `.cursor-plugin/marketplace.json` points Cursor at the
+package. Both marketplaces install from a generated distribution repository built with
+`npm run build:distribution-repo`; submission steps are in
+[directory-submission.md](directory-submission.md).
 
 ## Example requests
 

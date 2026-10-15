@@ -40,7 +40,7 @@ describe("stdio executable", () => {
       packages: Record<string, { version?: string }>;
     };
 
-    expect(packageJson.version).toBe("1.1.1");
+    expect(packageJson.version).toBe("1.1.2");
     expect(SERVER_VERSION).toBe(packageJson.version);
     expect(lock.packages["packages/stdio"]?.version).toBe(packageJson.version);
     expect(packageJson.mcpName).toBe("io.github.bartekrutkowski/watchgoose-mcp");

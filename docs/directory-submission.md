@@ -404,8 +404,41 @@ review. Then run, in the marketplace fork:
 Commit the regenerated `.grok-plugin/plugin-index.json`, open the pull request, and complete its
 template. The PR body should list the only network endpoints (`https://mcp.watchgoose.com/mcp` and
 the Watchgoose OAuth pages it redirects to) and state that the package ships no hooks, commands,
-scripts, or local executables. To ship a later release, push the regenerated distribution
-repository, bump `sha` in the existing entry, and regenerate the index; never add a second entry.
+scripts, or local executables. The first submission is
+[xai-org/plugin-marketplace#1462](https://github.com/xai-org/plugin-marketplace/pull/1462).
+
+Later releases need no manual pull request. xAI's daily **Bump plugin SHAs** workflow opens one when
+the distribution repository's `HEAD` has moved and its plugin version has changed. Review that pull
+request when it appears; never add a second entry.
+
+## Gemini CLI extension gallery
+
+The gallery has no submission or review. Google's crawler indexes public GitHub repositories that
+carry the `gemini-cli-extension` topic and a root `gemini-extension.json`, and it crawls tagged
+repositories daily. The distribution repository satisfies both once the topic is set in its
+**About** box. The manifest version must match the release tag, which the release-version test and
+the distribution workflow's tag check enforce. Indexing can lag by weeks.
+
+`gemini-extension.json` declares the hosted server through `httpUrl` (Streamable HTTP) with OAuth.
+It lists the `mcp:read`, `mcp:write`, and `offline_access` scopes explicitly, because Watchgoose
+rejects authorization requests without `mcp:read` and Gemini CLI does not promise to read scopes
+from server metadata. Consent still defaults to read-only. Gemini CLI uses a loopback redirect on a
+random port, which the Watchgoose redirect policy allows. Skills load from the default `skills/`
+directory.
+
+Before relying on the listing, install it locally with
+`gemini extensions install https://github.com/pixeware/watchgoose-plugin`, run
+`/mcp auth watchgoose`, approve read-only consent, and confirm the five skills and three read-only
+tools.
+
+## Kiro powers
+
+Kiro lists powers submitted through `https://kiro.dev/powers/submit` from a public GitHub repository
+in the Agent Plugins format. The distribution repository's root `plugin.json` carries the required
+`$schema`, `name`, `version`, and `description`; Kiro reads skills from `skills/*/SKILL.md` and the
+server from `mcp.json`. The package README carries the required privacy policy link and support
+contact. Install and test the power in Kiro before submitting the repository URL. Curated partner
+powers are a separate, AWS-led programme and are not required for a listing.
 
 ## Official MCP Registry
 

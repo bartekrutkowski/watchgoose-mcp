@@ -303,6 +303,110 @@ exact version and the current OpenAI documentation or support answer instead of 
 successful Codex test. Rescan after any metadata change and revalidate every requirement before the
 owner submits.
 
+## Marketplace distribution repository
+
+Cursor and Grok Build install plugins straight from a public Git repository. Like other monitoring
+vendors, Watchgoose ships a small distribution repository in the company GitHub organization,
+`https://github.com/pixeware/watchgoose-plugin`, instead of this source repository. Pixeware LTD is
+the legal operator named in the Watchgoose Terms, which ties the organization to the brand for
+marketplace reviewers. The repository root is the `plugins/watchgoose-monitoring/` package, so
+neither marketplace needs a subdirectory path. The MCP Registry name, npm package, Claude listing,
+and OpenAI upload keep pointing at this repository.
+
+The distribution repository is generated; never edit it by hand. The **Distribution repository**
+workflow (`.github/workflows/distribution.yml`) publishes it when a `v*` release tag is pushed here,
+or on manual dispatch. It checks that the tag matches the release version, runs the skills tests,
+stages the package with `npm run build:distribution-repo` (which only rewrites `repository` in each
+manifest), then commits as `github-actions[bot]`, tags the same version, and pushes. It never
+force-pushes, because Grok Build pins commits. The job summary prints the pushed commit to pin in
+the Grok Build catalog. Run the script locally only to preview the staged tree.
+
+One-time owner setup:
+
+1. Create the public repository `pixeware/watchgoose-plugin` with an initial README, so it has a
+   `main` branch to check out. The first publish replaces that README.
+2. Generate a dedicated SSH key pair. Add the public key to that repository as a deploy key with
+   write access, and the private key to this repository as the Actions secret
+   `DISTRIBUTION_DEPLOY_KEY`. The key can write only to the distribution repository. Keep no other
+   copy of the private key.
+3. Optionally, set the organization's website to `https://watchgoose.com/` and verify the domain on
+   the organization, which adds a verified badge reviewers can see.
+4. Run the workflow manually once, or push the next release tag.
+
+## Cursor Marketplace
+
+This is an owner-run submission of the distribution repository. Revalidate the
+[plugins reference](https://cursor.com/docs/reference/plugins) and its submission checklist
+immediately before submitting. Cursor manually reviews every plugin and every later update.
+
+`.cursor-plugin/plugin.json` points `mcpServers` at the packaged `.mcp.json`, which declares only
+the hosted HTTPS endpoint with no headers or variables. Cursor runs the OAuth flow itself through
+Dynamic Client Registration; its fixed redirect URIs
+(`https://www.cursor.com/agents/mcp/oauth/callback` and `http://localhost:8787/callback`) satisfy
+the Watchgoose redirect policy. Skills are discovered from the default `skills/` directory. The
+manifest sets no `category` or `tags`, matching other monitoring vendors; Cursor places listings in
+its own marketplace sections. This source repository also carries a root
+`.cursor-plugin/marketplace.json`, so a local checkout installs the same package.
+
+1. Load the package locally in Cursor, connect, approve read-only consent, and confirm the five
+   skills and three read-only tools appear. Reconnect with read-and-write consent and confirm all
+   ten tools. Redact all project data from any capture.
+2. Submit `https://github.com/pixeware/watchgoose-plugin` at
+   `https://cursor.com/marketplace/publish`.
+3. Record the outcome. Every later manifest, skill, or MCP-config change goes through review again.
+
+| Field       | Value                                                                    |
+| ----------- | ------------------------------------------------------------------------ |
+| Plugin name | `watchgoose-monitoring`                                                  |
+| Display     | Watchgoose Monitoring                                                    |
+| Logo        | `.claude-plugin/icon.png` (512 by 512 PNG, committed, relative path)     |
+| Remote MCP  | `https://mcp.watchgoose.com/mcp`, OAuth with Dynamic Client Registration |
+| Support     | `support@watchgoose.com`                                                 |
+
+## Grok Build plugin marketplace
+
+This is an owner-run pull request to
+[xai-org/plugin-marketplace](https://github.com/xai-org/plugin-marketplace). Revalidate its README
+and `CONTRIBUTING.md` immediately before opening it. The catalog indexes the package through
+`.grok-plugin/plugin.json` (read before `.claude-plugin/plugin.json`), the default `skills/`
+directory, and `.mcp.json`, whose `type: "http"` server is the hosted endpoint. Grok Build handles
+sign-in when the server first requires authorization; no key is stored in the package.
+
+Add exactly one object to `.grok-plugin/marketplace.json`. After the distribution repository is
+pushed, set `sha` to the full 40-character lowercase commit from
+`git ls-remote https://github.com/pixeware/watchgoose-plugin.git refs/heads/main`. Never pin a tag,
+branch, or abbreviated SHA.
+
+```json
+{
+  "name": "watchgoose-monitoring",
+  "description": "Audit cron and scheduled-job monitoring coverage, set up Watchgoose checks for one job or a batch, review monitoring health and triage missed runs.",
+  "category": "monitoring",
+  "source": {
+    "source": "url",
+    "url": "https://github.com/pixeware/watchgoose-plugin.git",
+    "sha": "<40-character commit on main>"
+  },
+  "homepage": "https://watchgoose.com/docs/mcp/",
+  "keywords": ["watchgoose", "watchgoose mcp", "watchgoose monitoring"],
+  "domains": ["watchgoose.com", "mcp.watchgoose.com"]
+}
+```
+
+Keywords trigger the marketplace's install suggestion, so they stay brand-scoped, as other
+monitoring vendors' entries do; generic terms such as `cron` or `monitoring` are pushed back in
+review. Then run, in the marketplace fork:
+
+1. `python3 scripts/generate-plugin-index.py`
+2. `python3 scripts/validate-catalog.py`
+3. `python3 scripts/generate-plugin-index.py --check`
+
+Commit the regenerated `.grok-plugin/plugin-index.json`, open the pull request, and complete its
+template. The PR body should list the only network endpoints (`https://mcp.watchgoose.com/mcp` and
+the Watchgoose OAuth pages it redirects to) and state that the package ships no hooks, commands,
+scripts, or local executables. To ship a later release, push the regenerated distribution
+repository, bump `sha` in the existing entry, and regenerate the index; never add a second entry.
+
 ## Official MCP Registry
 
 The 0.1.2 publication commands and aggregator snapshot below describe the previous release.

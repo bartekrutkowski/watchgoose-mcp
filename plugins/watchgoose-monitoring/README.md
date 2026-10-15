@@ -21,6 +21,15 @@ permissions apply. Avoid enabling duplicate manually configured copies of the sa
 can also work offline with supplied redacted files; other workflows disclose missing tools. Pings
 and routing metadata require existing broader access; guidance never expands it automatically.
 
+## Network endpoints and credentials
+
+The plugin itself contacts one endpoint: the hosted MCP server at `https://mcp.watchgoose.com/mcp`.
+On first use your client opens the OAuth authorization flow on `https://mcp.watchgoose.com`, which
+sends you to `https://watchgoose.com/mcp/connect/` to sign in and choose a project. The only
+credential is the OAuth grant your client stores after that consent. The package contains no API
+keys, environment variables, hooks or executables. The optional heartbeat wrapper draft, if an
+operator installs it, posts to the private check URL they store in `WATCHGOOSE_PING_URL`.
+
 ## Safety and operator handoff
 
 Check mutations require explicit approval and available write tools. Counts and histories are

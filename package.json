@@ -22,6 +22,7 @@
     "typecheck": "tsc -b --pretty false && tsc --noEmit --pretty false -p tsconfig.integration.json && tsc --noEmit --pretty false -p tsconfig.server-tests.json",
     "typecheck:base": "tsc -b packages/core packages/stdio --pretty false && tsc --noEmit --pretty false -p tsconfig.integration.json",
     "build:openai-plugin": "node scripts/build-openai-plugin.ts",
+    "build:distribution-repo": "node scripts/build-distribution-repo.ts",
     "publish:dry-run": "npm publish --dry-run --workspace watchgoose-mcp"
   },
   "devDependencies": {

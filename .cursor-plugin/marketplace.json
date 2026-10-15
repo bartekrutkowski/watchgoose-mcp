@@ -1,0 +1,17 @@
+{
+  "name": "watchgoose",
+  "owner": {
+    "name": "Watchgoose.com",
+    "email": "support@watchgoose.com"
+  },
+  "metadata": {
+    "description": "Watchgoose cron and scheduled-job monitoring plugin."
+  },
+  "plugins": [
+    {
+      "name": "watchgoose-monitoring",
+      "source": "plugins/watchgoose-monitoring",
+      "description": "Audit cron and scheduled-job monitoring coverage, set up Watchgoose checks for one job or a batch, review monitoring health and triage missed runs."
+    }
+  ]
+}

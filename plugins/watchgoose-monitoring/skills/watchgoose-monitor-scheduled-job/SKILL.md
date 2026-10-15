@@ -1,6 +1,6 @@
 ---
 name: watchgoose-monitor-scheduled-job
-description:
+description: >-
   Use when configuring Watchgoose monitoring for a cron job, scheduled backup, recurring worker, or
   systemd timer, or when drafting heartbeat instrumentation and check settings for an identified
   job.

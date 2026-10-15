@@ -1,6 +1,6 @@
 ---
 name: watchgoose-monitoring-health-review
-description:
+description: >-
   Use when asking whether existing Watchgoose monitoring is actually working, or reviewing
   neglected, unarmed or paused checks, alert routing, runtime headroom and repeated status changes.
 ---

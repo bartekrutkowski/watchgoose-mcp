@@ -1,6 +1,6 @@
 ---
 name: watchgoose-missed-run-triage
-description:
+description: >-
   Use when investigating a Watchgoose check that is down, late, paused, unarmed, missing heartbeats,
   or showing unexpected status transitions, including requests for a missed-run incident handoff.
 ---

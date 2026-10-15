@@ -84,18 +84,23 @@ function parsedSkill(skillName: string) {
   const text = readFileSync(path, "utf8");
   const match = text.match(/^---\n([\s\S]*?)\n---\n([\s\S]+)$/);
   expect(match, "skill must have bounded YAML frontmatter and a body").toBeTruthy();
-  // Read this bundle's plain scalar subset, including Prettier's indented folding.
+  // Read this bundle's scalar subset: inline values or `>-` folded blocks.
   // Official skills-ref validation separately checks complete YAML semantics.
   const frontmatter: Record<string, string> = {};
   let field: string | undefined;
+  let block: string | undefined;
   for (const line of match![1]!.split("\n")) {
     const pair = line.match(/^([a-z-]+):(?: (.*))?$/);
     if (pair) {
       field = pair[1]!;
       expect(Object.hasOwn(frontmatter, field), "duplicate metadata field").toBe(false);
-      frontmatter[field] = pair[2] ?? "";
+      // xAI's Grok Build catalog drops plain multi-line values; only `>-` blocks may continue.
+      expect(pair[2], `${field} needs an inline value or a >- block`).toMatch(/\S/);
+      block = pair[2] === ">-" ? field : undefined;
+      frontmatter[field] = block ? "" : pair[2]!;
     } else {
-      expect(field !== undefined && /^ {2}\S/.test(line), "plain scalar continuation").toBe(true);
+      expect(field !== undefined && /^ {2}\S/.test(line), "folded block continuation").toBe(true);
+      expect(block, "continuation outside a >- block").toBe(field);
       frontmatter[field!] = `${frontmatter[field!]} ${line.trim()}`.trim();
     }
   }
@@ -114,6 +119,8 @@ describe("canonical skills and platform adapters", () => {
       [
         ".claude-plugin/icon.png",
         ".claude-plugin/plugin.json",
+        ".cursor-plugin/plugin.json",
+        ".grok-plugin/plugin.json",
         ".mcp.json",
         "LICENSE",
         "README.md",
@@ -259,6 +266,61 @@ describe("canonical skills and platform adapters", () => {
     expect(portable.keywords).toEqual(claude.keywords);
     expect(existsSync(resolve(pluginRoot, "hooks"))).toBe(false);
     expect(existsSync(resolve(pluginRoot, ".app.json"))).toBe(false);
+  });
+
+  it("Cursor metadata shares the canonical identity and the packaged hosted MCP config", () => {
+    const cursor = z
+      .object({
+        ...metadata,
+        displayName: z.literal("Watchgoose Monitoring"),
+        author: z.object({ name: z.string().min(1), email: z.email() }).strict(),
+        logo: z.literal(".claude-plugin/icon.png"),
+        mcpServers: z.literal("./.mcp.json"),
+      })
+      .strict()
+      .parse(pluginJson(".cursor-plugin/plugin.json"));
+    const claude = claudeMetadata.parse(pluginJson(".claude-plugin/plugin.json"));
+    expect(cursor.name).toBe(claude.name);
+    expect(cursor.version).toBe(claude.version);
+    expect(cursor.description).toBe(claude.description);
+    expect(cursor.keywords).toEqual(claude.keywords);
+    expect(cursor.author.name).toBe(claude.author.name);
+    expect(existsSync(resolve(pluginRoot, cursor.logo))).toBe(true);
+  });
+
+  it("the Cursor repository marketplace points only at the migrated package", () => {
+    const marketplace = z
+      .object({
+        name,
+        owner: z.object({ name: z.string().min(1), email: z.email() }).strict(),
+        metadata: z.object({ description: z.string().min(1) }).strict(),
+        plugins: z
+          .array(z.object({ name, source: z.string(), description: z.string().min(1) }).strict())
+          .length(1),
+      })
+      .strict()
+      .parse(json(resolve(root, ".cursor-plugin", "marketplace.json")));
+    const claude = claudeMetadata.parse(pluginJson(".claude-plugin/plugin.json"));
+    expect(marketplace.plugins[0]).toEqual({
+      name: claude.name,
+      source: "plugins/watchgoose-monitoring",
+      description: claude.description,
+    });
+  });
+
+  it("Grok metadata shares the canonical identity and uses the default MCP config", () => {
+    const grok = z.object(metadata).strict().parse(pluginJson(".grok-plugin/plugin.json"));
+    const claude = claudeMetadata.parse(pluginJson(".claude-plugin/plugin.json"));
+    expect(grok).toEqual({
+      name: claude.name,
+      version: claude.version,
+      description: claude.description,
+      author: claude.author,
+      homepage: claude.homepage,
+      repository: claude.repository,
+      license: claude.license,
+      keywords: claude.keywords,
+    });
   });
 
   it("the skills' constrained payload vocabulary and bounds match the actual MCP schemas", () => {

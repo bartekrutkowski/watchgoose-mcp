@@ -1,0 +1,53 @@
+name: Distribution repository
+
+# Publishes plugins/watchgoose-monitoring to the marketplace distribution repository that Cursor
+# and Grok Build install from. Runs for release tags only; the repository is never force-pushed
+# because Grok Build pins its commits.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: distribution
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Require the tag to match the release version
+        if: github.ref_type == 'tag'
+        run: test "${GITHUB_REF_NAME}" = "v$(node -p 'require("./package.json").version')"
+      - run: npx vitest run tests/skills
+      - run: npm run build:distribution-repo
+      - uses: actions/checkout@v4
+        with:
+          repository: pixeware/watchgoose-plugin
+          ssh-key: ${{ secrets.DISTRIBUTION_DEPLOY_KEY }}
+          path: distribution
+      - name: Commit, tag and push
+        run: |
+          version="v$(node -p 'require("./package.json").version')"
+          rsync -a --delete --exclude .git dist/distribution/watchgoose-plugin/ distribution/
+          cd distribution
+          git config user.name "github-actions[bot]"
+          git config user.email "41898813+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "Distribution repository already matches ${version}." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          git commit -m "Release ${version} from watchgoose-mcp@${GITHUB_SHA}"
+          git tag "${version}"
+          git push origin HEAD "refs/tags/${version}"
+          echo "Pushed ${version} as $(git rev-parse HEAD). Pin this sha in the Grok Build catalog." >> "$GITHUB_STEP_SUMMARY"

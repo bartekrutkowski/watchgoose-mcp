@@ -1,6 +1,6 @@
 ---
 name: watchgoose-cron-coverage-audit
-description:
+description: >-
   Use when reviewing whether a repository's cron jobs, backups, scheduled tasks, or recurring
   workers have Watchgoose monitoring coverage, or when identifying gaps before configuring checks.
 ---

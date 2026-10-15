@@ -1,6 +1,6 @@
 ---
 name: watchgoose-batch-monitor-scheduled-jobs
-description:
+description: >-
   Use when proposing new Watchgoose checks for multiple scheduled jobs from an audit, list or CSV,
   rather than configuring one job or updating existing checks.
 ---

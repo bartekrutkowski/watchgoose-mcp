@@ -61,7 +61,8 @@ describe("marketplace distribution repository", () => {
     expect(workflow).toContain('tags: ["v*"]');
     expect(workflow).toContain("npm run build:distribution-repo");
     expect(workflow).not.toMatch(/--force|\+refs|push -f/);
-    // A persisted source token would hijack the nested distribution push (checkout v6+).
+    // An empty secret silently falls back to a read-only HTTPS checkout; fail before that.
+    expect(workflow).toContain('if [ -z "$DEPLOY_KEY" ]; then');
     expect(workflow.match(/uses: actions\/checkout@/g)).toHaveLength(2);
     expect(workflow).toMatch(
       /uses: actions\/checkout@v\d+\n\s+with:\n\s+persist-credentials: false\n/

@@ -19,9 +19,17 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     steps:
-      # The source checkout must not persist its GITHUB_TOKEN: checkout v6+ applies persisted
-      # credentials to every repository under the workspace, which would turn the distribution
-      # push below into an HTTPS push as github-actions[bot] instead of using the deploy key.
+      # Without the deploy key, checkout falls back to HTTPS with GITHUB_TOKEN, which can read the
+      # public distribution repository but fails the final push with a 403.
+      - name: Require the distribution deploy key
+        env:
+          DEPLOY_KEY: ${{ secrets.DISTRIBUTION_DEPLOY_KEY }}
+        run: |
+          if [ -z "$DEPLOY_KEY" ]; then
+            echo "::error::Repository secret DISTRIBUTION_DEPLOY_KEY is missing or empty."
+            exit 1
+          fi
+      # The publish job never pushes the source repository, so it persists no credentials.
       - uses: actions/checkout@v7
         with:
           persist-credentials: false

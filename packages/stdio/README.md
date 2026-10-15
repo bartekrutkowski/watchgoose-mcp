@@ -110,6 +110,27 @@ Create `.vscode/mcp.json`:
 
 Run **MCP: List Servers** and start `watchgoose`.
 
+## Cline
+
+Cline connects to the hosted endpoint with OAuth, so no API key is needed. Open **MCP Servers >
+Configure MCP Servers** and add this entry to `cline_mcp_settings.json`:
+
+```json
+{
+  "mcpServers": {
+    "watchgoose": {
+      "type": "streamableHttp",
+      "url": "https://mcp.watchgoose.com/mcp"
+    }
+  }
+}
+```
+
+Keep `"type": "streamableHttp"` exactly as written; without it Cline falls back to SSE and the
+connection fails. When Cline prompts you to authenticate, sign in to Watchgoose in the browser,
+choose one project and keep read-only access unless you want Cline to change checks. To use a
+project API key instead, add the `npx` entry from the Cursor section above to the same file.
+
 ## Environment
 
 | Variable                    |         Required | Default                         | Description                                                                                                                                  |

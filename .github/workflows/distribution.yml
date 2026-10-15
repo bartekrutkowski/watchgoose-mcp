@@ -19,7 +19,12 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     steps:
+      # The source checkout must not persist its GITHUB_TOKEN: checkout v6+ applies persisted
+      # credentials to every repository under the workspace, which would turn the distribution
+      # push below into an HTTPS push as github-actions[bot] instead of using the deploy key.
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@v7
         with:
           node-version: 24

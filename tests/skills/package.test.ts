@@ -11,6 +11,7 @@ import {
 } from "../../packages/core/src/schemas.js";
 
 import { sanitizeCheck, sanitizePing } from "../../packages/core/src/sanitize.js";
+import { ALLOWED_SCOPES } from "../../packages/server/src/constants.js";
 
 const root = process.cwd();
 const pluginRoot = resolve(root, "plugins", "watchgoose-monitoring");
@@ -124,6 +125,7 @@ describe("canonical skills and platform adapters", () => {
         ".mcp.json",
         "LICENSE",
         "README.md",
+        "gemini-extension.json",
         "mcp.json",
         "plugin.json",
         "skills/watchgoose-batch-monitor-scheduled-jobs/SKILL.md",
@@ -306,6 +308,41 @@ describe("canonical skills and platform adapters", () => {
       source: "plugins/watchgoose-monitoring",
       description: claude.description,
     });
+  });
+
+  it("Gemini extension shares the canonical identity and the hosted OAuth endpoint", () => {
+    const gemini = z
+      .object({
+        name,
+        version,
+        description: z.string().min(1),
+        mcpServers: z
+          .object({
+            watchgoose: z
+              .object({
+                httpUrl: z.literal("https://mcp.watchgoose.com/mcp"),
+                oauth: z
+                  .object({
+                    enabled: z.literal(true),
+                    scopes: z.array(z.enum(ALLOWED_SCOPES)).min(1),
+                  })
+                  .strict(),
+              })
+              .strict(),
+          })
+          .strict(),
+      })
+      .strict()
+      .parse(pluginJson("gemini-extension.json"));
+    const claude = claudeMetadata.parse(pluginJson(".claude-plugin/plugin.json"));
+    expect(gemini.name).toBe(claude.name);
+    expect(gemini.version).toBe(claude.version);
+    expect(gemini.description).toBe(claude.description);
+    // Watchgoose rejects authorization requests without mcp:read, so never rely on discovery.
+    expect(gemini.mcpServers.watchgoose.oauth.scopes).toContain("mcp:read");
+    expect(new Set(gemini.mcpServers.watchgoose.oauth.scopes).size).toBe(
+      gemini.mcpServers.watchgoose.oauth.scopes.length
+    );
   });
 
   it("Grok metadata shares the canonical identity and uses the default MCP config", () => {

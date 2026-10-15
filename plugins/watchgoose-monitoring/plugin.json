@@ -1,7 +1,7 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "watchgoose-monitoring",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "description": "Audit cron and scheduled-job monitoring coverage, set up Watchgoose checks for one job or a batch, review monitoring health and triage missed runs.",
   "author": { "name": "Watchgoose.com", "url": "https://watchgoose.com/" },
   "homepage": "https://watchgoose.com/docs/mcp/",

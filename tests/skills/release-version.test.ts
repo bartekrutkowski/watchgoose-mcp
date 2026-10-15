@@ -38,6 +38,10 @@ describe("single Watchgoose release version", () => {
         "plugins/watchgoose-monitoring/.grok-plugin/plugin.json",
         (json) => json.version
       ),
+      "Gemini extension": version(
+        "plugins/watchgoose-monitoring/gemini-extension.json",
+        (json) => json.version
+      ),
       "OpenAI plugin": version("distribution/openai/plugin.json", (json) => json.version),
     };
     for (const [source, value] of Object.entries(versions)) {

@@ -2,7 +2,11 @@ import { mkdtempSync, readFileSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { CLIENT_REGISTRATION_TTL, MAX_REFRESH_ROWS } from "./constants.js";
+import {
+  CLIENT_REGISTRATION_TTL,
+  MAX_REFRESH_ROWS,
+  REFRESH_TOKEN_REUSE_INTERVAL,
+} from "./constants.js";
 import { SqliteState } from "./database.js";
 
 const KEY = Buffer.alloc(32, 7);
@@ -49,6 +53,22 @@ describe("SQLite OAuth state", () => {
     expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
     expect(results.filter((result) => result.status === "rejected")).toHaveLength(1);
     expect((await adapter.find("code"))?.consumed).toBe(100);
+    state.close();
+  });
+
+  it("hides a refresh token's consumption only within the reuse interval", async () => {
+    let now = 100;
+    const state = new SqliteState(":memory:", KEY, () => now);
+    const refresh = state.adapter("RefreshToken");
+    await refresh.upsert("refresh", { kind: "RefreshToken", exp: 100_000 }, 99_900);
+    await refresh.consume("refresh");
+    now += REFRESH_TOKEN_REUSE_INTERVAL;
+    expect((await refresh.find("refresh"))?.consumed).toBeUndefined();
+    await refresh.consume("refresh");
+    now += 1;
+    // The retry kept the first consumed_at, so the interval ends on time.
+    expect((await refresh.find("refresh"))?.consumed).toBe(100);
+    await expect(refresh.consume("refresh")).rejects.toThrow("already consumed");
     state.close();
   });
 

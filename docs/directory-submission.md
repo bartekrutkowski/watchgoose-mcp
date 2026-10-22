@@ -209,15 +209,18 @@ model needs an owner decision and a separately reviewed ticket.
 Dynamic registrations are distinct records; repeating the same registration does not deduplicate by
 host or client name. A client that retains its unexpired `client_id` can reuse it across reconnects
 and deployments while the SQLite volume and encryption key remain intact. Reauthorization still
-forces consent and creates fresh grant state. Refresh tokens rotate, concurrent reuse permits one
-success, and grant invalidation does not delete the DCR client, so the same client can reconnect.
+forces consent and creates fresh grant state. Refresh tokens rotate; a rotated token is accepted
+again for 10 minutes so concurrent or retried refreshes succeed, and later reuse revokes the grant.
+Grant invalidation does not delete the DCR client, so the same client can reconnect.
 
-Client registrations and refresh grants expire after 30 days. Pruning removes expired rows in
-bounded batches. Storage is capped at 10,000 DCR clients, 100,000 refresh/grant rows, and 50,000
-transient rows; capacity checks fail closed. A client that registers again instead of reusing its
-identifier grows the DCR table until expiry and pruning. A follow-up ticket owns admission rate
-limits, capacity alerting, and additional repeated-registration/reconnect lifecycle coverage; do not
-weaken public DCR or deduplicate shared hosts speculatively.
+Grants expire 30 days after their last refresh and never later than one year after sign-in. A client
+registration expires after the last of its grants, so it can outlive an individual grant. Every
+grant gets a refresh token, with or without `offline_access`; see `docs/self-hosted-server.md`.
+Pruning removes expired rows in bounded batches. Storage is capped at 10,000 DCR clients, 100,000
+refresh/grant rows, and 50,000 transient rows; capacity checks fail closed. A client that registers
+again instead of reusing its identifier grows the DCR table until expiry and pruning. A follow-up
+ticket owns admission rate limits, capacity alerting, and additional repeated-registration/reconnect
+lifecycle coverage; do not weaken public DCR or deduplicate shared hosts speculatively.
 
 ### CIMD decision memo
 

@@ -55,6 +55,25 @@ for `better-sqlite3` 12.4.1 it is
   requests use a fresh stateless JSON transport.
 - Authorization always forces a fresh consent interaction, including requests without
   `offline_access`; an existing provider session cannot silently mint another origin credential.
+- Every authorization-code grant issues a refresh token when the client registered the
+  `refresh_token` grant, whether or not it requested `offline_access`. ChatGPT requests only
+  `mcp:read mcp:write`; without this its connection ended with the one-hour access token. As the MCP
+  authorization spec recommends, `offline_access` stays out of the protected-resource
+  `scopes_supported` and the `WWW-Authenticate` challenge, and the authorization server metadata
+  still lists it.
+- Connection lifetime is rolling. Each successful refresh moves the grant and its encrypted
+  credential to 30 days from that refresh, capped at one year after sign-in (`REFRESH_TOKEN_TTL`,
+  `MAX_GRANT_LIFETIME`). Rotated refresh tokens never outlive the cap. A grant that isn't refreshed
+  for 30 days, or reaches one year, ends: its refresh tokens are rejected and its unexpired access
+  tokens stop working, so the client signs in again.
+- The refresh also extends the client registration to at least the grant's new expiry. A
+  registration is shared by every grant of that client and expires only after the last of them, so
+  it can outlive an individual grant. A client re-registers only when its registration itself has
+  expired; otherwise it signs in again with the same `client_id`.
+- Refresh tokens rotate on every use. A rotated token is accepted again for 10 minutes
+  (`REFRESH_TOKEN_REUSE_INTERVAL`), so a lost token response or two concurrent refreshes don't end
+  the connection; each reuse issues another token from the same grant. Reuse after that interval is
+  treated as theft: oidc-provider revokes the grant and every token and credential derived from it.
 - The interaction and session cookies use `__Host-`. The provider intentionally scopes its resume
   cookie to `/authorize/<uid>`, which is incompatible with the required `Path=/` for `__Host-`, so
   resume uses `__Secure-`. Its HMAC-SHA1 signature matches oidc-provider 9.11.5's Keygrip format;
@@ -103,9 +122,9 @@ Create a consistent online SQLite backup with the `better-sqlite3` backup API:
 node packages/server/dist/cli.js backup --output /backup/watchgoose-mcp.sqlite
 ```
 
-The `/data` volume and its backups contain encrypted 30-day refresh credential material and should
-use the production database retention and access policy. The container receives no PostgreSQL
-credentials or Django settings.
+The `/data` volume and its backups contain encrypted refresh credential material that can stay valid
+for up to one year and should use the production database retention and access policy. The container
+receives no PostgreSQL credentials or Django settings.
 
 ## Production configuration
 

@@ -7,7 +7,14 @@ export const CALLBACK_URL = `${ISSUER}/oauth/callback`;
 export const DOCS_URL = "https://watchgoose.com/docs/mcp/";
 
 export const ACCESS_TOKEN_TTL = 60 * 60;
+// A connection stays signed in while it is refreshed at least every
+// REFRESH_TOKEN_TTL seconds, and never longer than MAX_GRANT_LIFETIME from
+// sign-in. A rotated refresh token is accepted again for
+// REFRESH_TOKEN_REUSE_INTERVAL seconds, so a lost token response or two
+// concurrent refreshes don't revoke the connection.
 export const REFRESH_TOKEN_TTL = 30 * 24 * 60 * 60;
+export const MAX_GRANT_LIFETIME = 365 * 24 * 60 * 60;
+export const REFRESH_TOKEN_REUSE_INTERVAL = 10 * 60;
 export const AUTHORIZATION_CODE_TTL = 60;
 export const TRANSIENT_TTL = 10 * 60;
 export const CLIENT_REGISTRATION_TTL = 30 * 24 * 60 * 60;

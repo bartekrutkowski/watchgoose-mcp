@@ -12,6 +12,7 @@ import {
   ACCESS_TOKEN_TTL,
   ALLOWED_SCOPES,
   AUTHORIZATION_CODE_TTL,
+  MAX_GRANT_LIFETIME,
   MAX_HANDOFF_RESPONSE_BYTES,
   MCP_SCOPES,
   REFRESH_TOKEN_TTL,
@@ -241,8 +242,11 @@ export function createOAuthService(config: ServerConfig, state: SqliteState): OA
         return `/oauth/callback?begin=${stateId}`;
       },
     },
-    issueRefreshToken(_ctx, client, code) {
-      return client.grantTypeAllowed("refresh_token") && code.scopes.has("offline_access");
+    // Every client registers the refresh_token grant, but not every client
+    // asks for offline_access (ChatGPT doesn't). Without a refresh token the
+    // connection would end with its one-hour access token.
+    issueRefreshToken(_ctx, client) {
+      return client.grantTypeAllowed("refresh_token");
     },
     jwks: { keys: [deriveSigningJwk(config.encryptionKey)] },
     rotateRefreshToken: true,
@@ -269,7 +273,14 @@ export function createOAuthService(config: ServerConfig, state: SqliteState): OA
       AuthorizationCode: AUTHORIZATION_CODE_TTL,
       Grant: REFRESH_TOKEN_TTL,
       Interaction: TRANSIENT_TTL,
-      RefreshToken: REFRESH_TOKEN_TTL,
+      RefreshToken: (_ctx, token) =>
+        Math.max(
+          1,
+          Math.min(
+            REFRESH_TOKEN_TTL,
+            (token.iiat ?? config.now()) + MAX_GRANT_LIFETIME - config.now()
+          )
+        ),
       Session: TRANSIENT_TTL,
     },
     expiresWithSession: () => false,
@@ -283,7 +294,31 @@ export function createOAuthService(config: ServerConfig, state: SqliteState): OA
   };
   const provider = new Provider(config.issuer, configuration);
   provider.proxy = true;
+  provider.use(async (ctx, next) => {
+    await next();
+    const grant = ctx.oidc?.entities.Grant;
+    if (
+      ctx.oidc?.route === "token" &&
+      ctx.oidc.params?.grant_type === "refresh_token" &&
+      ctx.status === 200 &&
+      grant
+    ) {
+      await extendGrant(grant);
+    }
+  });
   const callback = provider.callback();
+
+  // Each refresh moves the grant, its stored credential and the client
+  // registration to REFRESH_TOKEN_TTL from now, capped at MAX_GRANT_LIFETIME
+  // after sign-in.
+  async function extendGrant(grant: InstanceType<Provider["Grant"]>): Promise<void> {
+    const expiresAt = Math.min(config.now() + REFRESH_TOKEN_TTL, grant.iat + MAX_GRANT_LIFETIME);
+    if (!grant.clientId || expiresAt <= (grant.exp ?? 0)) return;
+    grant.exp = expiresAt;
+    await grant.save();
+    state.extendCredential(grant.jti, expiresAt);
+    state.touchClient(grant.clientId, expiresAt);
+  }
 
   async function finish(
     req: IncomingMessage,

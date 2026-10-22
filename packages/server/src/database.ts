@@ -7,6 +7,7 @@ import {
   MAX_DCR_CLIENTS,
   MAX_REFRESH_ROWS,
   MAX_TRANSIENT_ROWS,
+  REFRESH_TOKEN_REUSE_INTERVAL,
 } from "./constants.js";
 import { decrypt, deriveKey, encrypt, storageKey } from "./crypto.js";
 import { validateClientMetadata } from "./security.js";
@@ -248,8 +249,17 @@ export class SqliteState {
     const row = this.selectRow(table, model, id);
     if (!row || (row.expires_at !== null && row.expires_at <= this.now())) return undefined;
     const payload = this.deserializePayload(table, model, row);
-    if (row.consumed_at !== null) payload.consumed = row.consumed_at;
+    if (row.consumed_at !== null && !this.reusable(model, row.consumed_at)) {
+      payload.consumed = row.consumed_at;
+    }
     return payload;
+  }
+
+  // oidc-provider revokes the whole grant when a consumed refresh token comes
+  // back. Within the reuse interval the token is presented as unconsumed, so a
+  // client that lost the rotated token, or refreshed twice at once, can retry.
+  private reusable(model: string, consumedAt: number): boolean {
+    return model === "RefreshToken" && this.now() - consumedAt <= REFRESH_TOKEN_REUSE_INTERVAL;
   }
 
   private selectRow(table: Table, model: string, id: string): GenericRow | undefined {
@@ -323,12 +333,21 @@ export class SqliteState {
 
   private consume(table: Table, model: string, id: string): void {
     if (table === "dcr_clients") throw new Error("clients are not consumable");
+    // A refresh token reused within the reuse interval keeps its first
+    // consumed_at, so the interval never extends.
     const result = this.db
       .prepare(
-        `UPDATE ${table} SET consumed_at=?
-         WHERE id=? AND model=? AND consumed_at IS NULL AND (expires_at IS NULL OR expires_at>?)`
+        `UPDATE ${table} SET consumed_at=COALESCE(consumed_at, ?)
+         WHERE id=? AND model=? AND (expires_at IS NULL OR expires_at>?)
+           AND (consumed_at IS NULL OR (model='RefreshToken' AND consumed_at>=?))`
       )
-      .run(this.now(), storageKey(model, id, this.encryptionKey), model, this.now());
+      .run(
+        this.now(),
+        storageKey(model, id, this.encryptionKey),
+        model,
+        this.now(),
+        this.now() - REFRESH_TOKEN_REUSE_INTERVAL
+      );
     if (result.changes !== 1) throw new Error("artifact is already consumed or expired");
   }
 
@@ -368,6 +387,16 @@ export class SqliteState {
         encrypted.nonce,
         encrypted.tag
       );
+  }
+
+  extendCredential(grantId: string, expiresAt: number): void {
+    const result = this.db
+      .prepare(
+        `UPDATE refresh_grants SET expires_at = MAX(expires_at, ?)
+         WHERE id=? AND model='Credential' AND expires_at>?`
+      )
+      .run(expiresAt, storageKey("Credential", grantId, this.encryptionKey), this.now());
+    if (result.changes !== 1) throw new Error("OAuth credential is unavailable");
   }
 
   touchClient(clientId: string, expiresAt: number): void {

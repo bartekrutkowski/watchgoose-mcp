@@ -7,7 +7,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ServerConfig } from "../../packages/server/src/config.js";
 import { createWatchgooseService } from "../../packages/server/src/service.js";
 import type { SqliteState } from "../../packages/server/src/database.js";
-import { MAX_REFRESH_ROWS } from "../../packages/server/src/constants.js";
+import {
+  MAX_GRANT_LIFETIME,
+  MAX_REFRESH_ROWS,
+  REFRESH_TOKEN_REUSE_INTERVAL,
+  REFRESH_TOKEN_TTL,
+} from "../../packages/server/src/constants.js";
 
 const ISSUER = "https://mcp.watchgoose.com";
 const RESOURCE = `${ISSUER}/mcp`;
@@ -102,6 +107,7 @@ async function start(
 afterEach(async () => {
   await Promise.all(running.splice(0).map((item) => item.close()));
   vi.restoreAllMocks();
+  vi.useRealTimers();
 });
 
 function cookieValues(response: Response): string {
@@ -321,6 +327,23 @@ async function oauthFlow(
     callbackState: state,
     tokenBody,
   };
+}
+
+function refreshWith(
+  service: RunningService,
+  clientId: string,
+  refreshToken: string
+): Promise<Response> {
+  return request(service, "/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      grant_type: "refresh_token",
+      client_id: clientId,
+      refresh_token: refreshToken,
+      resource: RESOURCE,
+    }),
+  });
 }
 
 function toolListBody(): string {
@@ -558,12 +581,217 @@ describe("OAuth and MCP integration", () => {
         }),
       });
     const refreshes = await Promise.all([refreshRequest(), refreshRequest()]);
-    expect(refreshes.map((response) => response.status).sort()).toEqual([200, 400]);
-    const successfulRefresh = refreshes.find((response) => response.status === 200)!;
-    const refreshed = (await successfulRefresh.json()) as Record<string, unknown>;
-    expect(refreshed).toMatchObject({ expires_in: 3600, scope: "mcp:read" });
-    expect(refreshed.refresh_token).toBeTypeOf("string");
-    expect(refreshed.refresh_token).not.toBe(flow.refreshToken);
+    expect(refreshes.map((response) => response.status)).toEqual([200, 200]);
+    const rotated = new Set<unknown>();
+    for (const response of refreshes) {
+      const refreshed = (await response.json()) as Record<string, unknown>;
+      expect(refreshed).toMatchObject({ expires_in: 3600, scope: "mcp:read" });
+      expect(refreshed.refresh_token).toBeTypeOf("string");
+      expect(refreshed.refresh_token).not.toBe(flow.refreshToken);
+      rotated.add(refreshed.refresh_token);
+    }
+    expect(rotated.size).toBe(2);
+  });
+
+  it("issues a refresh token to clients that don't request offline_access", async () => {
+    const service = await start(makeOriginFetch("read+write"));
+    const flow = await oauthFlow(service, "mcp:read mcp:write", "read+write");
+    expect(flow.tokenBody.scope).toBe("mcp:read mcp:write");
+    expect(flow.refreshToken).toBeTypeOf("string");
+    const refreshed = await refreshWith(service, flow.clientId, flow.refreshToken!);
+    expect(refreshed.status, await refreshed.clone().text()).toBe(200);
+    expect(await refreshed.json()).toMatchObject({ scope: "mcp:read mcp:write" });
+  });
+
+  it("extends the connection on every refresh, up to one year after sign-in", async () => {
+    vi.useFakeTimers({ toFake: ["Date"], now: new Date("2026-01-01T00:00:00Z") });
+    const service = await start();
+    const flow = await oauthFlow(service);
+    const signedInAt = Math.floor(Date.now() / 1000);
+    const tools = (accessToken: string) =>
+      request(service, "/mcp", {
+        method: "POST",
+        headers: {
+          Accept: "application/json, text/event-stream",
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: toolListBody(),
+      });
+    const credentialExpiry = () =>
+      (
+        service.state.db
+          .prepare("SELECT MAX(expires_at) AS expires FROM refresh_grants WHERE model='Credential'")
+          .get() as { expires: number }
+      ).expires;
+    expect(credentialExpiry()).toBe(signedInAt + REFRESH_TOKEN_TTL);
+
+    // Refreshing every 29 days keeps the connection alive well past the
+    // original 30 days.
+    let refreshToken = flow.refreshToken!;
+    let accessToken = flow.accessToken;
+    const step = REFRESH_TOKEN_TTL - 24 * 60 * 60;
+    let elapsed = 0;
+    while (elapsed + step < MAX_GRANT_LIFETIME) {
+      elapsed += step;
+      vi.setSystemTime((signedInAt + elapsed) * 1000);
+      const response = await refreshWith(service, flow.clientId, refreshToken);
+      expect(response.status, `refresh after ${elapsed / 86400} days`).toBe(200);
+      const body = (await response.json()) as { access_token: string; refresh_token: string };
+      refreshToken = body.refresh_token;
+      accessToken = body.access_token;
+      expect(credentialExpiry()).toBe(
+        Math.min(signedInAt + elapsed + REFRESH_TOKEN_TTL, signedInAt + MAX_GRANT_LIFETIME)
+      );
+      expect((await tools(accessToken)).status).toBe(200);
+    }
+
+    // With a single grant, the client registration expires at the cap too,
+    // so the token endpoint rejects the client itself. The test below covers
+    // a registration that outlives the grant.
+    vi.setSystemTime((signedInAt + MAX_GRANT_LIFETIME) * 1000);
+    const capped = await refreshWith(service, flow.clientId, refreshToken);
+    expect(capped.status).toBe(401);
+    expect(await capped.json()).toMatchObject({ error: "invalid_client" });
+    expect((await tools(accessToken)).status).toBe(401);
+  });
+
+  it("ends a connection that isn't refreshed for 30 days", async () => {
+    vi.useFakeTimers({ toFake: ["Date"], now: new Date("2026-01-01T00:00:00Z") });
+    const service = await start();
+    const flow = await oauthFlow(service);
+    const signedInAt = Math.floor(Date.now() / 1000);
+    vi.setSystemTime((signedInAt + 10 * 24 * 60 * 60) * 1000);
+    const first = await refreshWith(service, flow.clientId, flow.refreshToken!);
+    expect(first.status).toBe(200);
+    const { refresh_token: refreshToken } = (await first.json()) as { refresh_token: string };
+
+    // With a single grant, the client registration expires with it.
+    vi.setSystemTime((signedInAt + 10 * 24 * 60 * 60 + REFRESH_TOKEN_TTL) * 1000);
+    const idle = await refreshWith(service, flow.clientId, refreshToken);
+    expect(idle.status).toBe(401);
+    expect(await idle.json()).toMatchObject({ error: "invalid_client" });
+  });
+
+  // The tests below keep the client registration alive, as another grant of
+  // the same client would, so they show the grant expiring on its own rather
+  // than with the registration.
+  function keepRegistration(service: RunningService): void {
+    service.state.db.prepare("UPDATE dcr_clients SET expires_at=4102444800").run();
+  }
+
+  function mcpTools(service: RunningService, accessToken: string): Promise<Response> {
+    return request(service, "/mcp", {
+      method: "POST",
+      headers: {
+        Accept: "application/json, text/event-stream",
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: toolListBody(),
+    });
+  }
+
+  it("ends the grant at the year cap while its registration and access token are still valid", async () => {
+    vi.useFakeTimers({ toFake: ["Date"], now: new Date("2026-01-01T00:00:00Z") });
+    const service = await start();
+    const flow = await oauthFlow(service);
+    keepRegistration(service);
+    const signedInAt = Math.floor(Date.now() / 1000);
+    const cap = signedInAt + MAX_GRANT_LIFETIME;
+
+    let refreshToken = flow.refreshToken!;
+    const step = REFRESH_TOKEN_TTL - 24 * 60 * 60;
+    for (let at = signedInAt + step; at < cap - 30 * 60; at += step) {
+      vi.setSystemTime(at * 1000);
+      const response = await refreshWith(service, flow.clientId, refreshToken);
+      expect(response.status).toBe(200);
+      refreshToken = ((await response.json()) as { refresh_token: string }).refresh_token;
+    }
+
+    // Half an hour before the cap, a refresh still issues a one-hour access
+    // token, but no stored artifact of the grant outlives the cap.
+    vi.setSystemTime((cap - 30 * 60) * 1000);
+    const last = await refreshWith(service, flow.clientId, refreshToken);
+    expect(last.status).toBe(200);
+    const fresh = (await last.json()) as {
+      access_token: string;
+      refresh_token: string;
+      expires_in: number;
+    };
+    expect(fresh.expires_in).toBe(3600);
+    expect(
+      service.state.db
+        .prepare(
+          "SELECT MAX(expires_at) AS expires FROM refresh_grants WHERE model IN ('Grant', 'Credential', 'RefreshToken')"
+        )
+        .get()
+    ).toEqual({ expires: cap });
+    vi.setSystemTime((cap - 1) * 1000);
+    expect((await mcpTools(service, fresh.access_token)).status).toBe(200);
+
+    vi.setSystemTime(cap * 1000);
+    expect((await mcpTools(service, fresh.access_token)).status).toBe(401);
+    const capped = await refreshWith(service, flow.clientId, fresh.refresh_token);
+    expect(capped.status).toBe(400);
+    expect(await capped.json()).toMatchObject({ error: "invalid_grant" });
+  });
+
+  it("ends a grant that isn't refreshed for 30 days while its registration is still valid", async () => {
+    vi.useFakeTimers({ toFake: ["Date"], now: new Date("2026-01-01T00:00:00Z") });
+    const service = await start();
+    const flow = await oauthFlow(service);
+    keepRegistration(service);
+    const signedInAt = Math.floor(Date.now() / 1000);
+    const refreshedAt = signedInAt + 10 * 24 * 60 * 60;
+    vi.setSystemTime(refreshedAt * 1000);
+    const first = await refreshWith(service, flow.clientId, flow.refreshToken!);
+    expect(first.status).toBe(200);
+    const { refresh_token: refreshToken } = (await first.json()) as { refresh_token: string };
+
+    // The refresh moved expiry from sign-in + 30 days to refresh + 30 days.
+    vi.setSystemTime((refreshedAt + REFRESH_TOKEN_TTL - 1) * 1000);
+    const extended = await refreshWith(service, flow.clientId, refreshToken);
+    expect(extended.status).toBe(200);
+    const { refresh_token: idleToken, access_token: accessToken } = (await extended.json()) as {
+      refresh_token: string;
+      access_token: string;
+    };
+
+    vi.setSystemTime((refreshedAt + 2 * REFRESH_TOKEN_TTL - 1) * 1000);
+    expect((await mcpTools(service, accessToken)).status).toBe(401);
+    const idle = await refreshWith(service, flow.clientId, idleToken);
+    expect(idle.status).toBe(400);
+    expect(await idle.json()).toMatchObject({ error: "invalid_grant" });
+  });
+
+  it("accepts a rotated refresh token within the reuse interval and revokes after it", async () => {
+    vi.useFakeTimers({ toFake: ["Date"], now: new Date("2026-01-01T00:00:00Z") });
+    const service = await start();
+    const flow = await oauthFlow(service);
+    const signedInAt = Math.floor(Date.now() / 1000);
+
+    const first = await refreshWith(service, flow.clientId, flow.refreshToken!);
+    expect(first.status).toBe(200);
+    const rotated = (await first.json()) as { access_token: string; refresh_token: string };
+
+    // A client that lost the first response retries with the old token.
+    vi.setSystemTime((signedInAt + REFRESH_TOKEN_REUSE_INTERVAL) * 1000);
+    const retry = await refreshWith(service, flow.clientId, flow.refreshToken!);
+    expect(retry.status, await retry.clone().text()).toBe(200);
+
+    // After the interval, the old token is treated as stolen and the whole
+    // connection is revoked, including tokens issued from it.
+    vi.setSystemTime((signedInAt + REFRESH_TOKEN_REUSE_INTERVAL + 1) * 1000);
+    const late = await refreshWith(service, flow.clientId, flow.refreshToken!);
+    expect(late.status).toBe(400);
+    expect(await late.json()).toMatchObject({ error: "invalid_grant" });
+    expect((await refreshWith(service, flow.clientId, rotated.refresh_token)).status).toBe(400);
+    expect(
+      service.state.db
+        .prepare("SELECT COUNT(*) AS count FROM refresh_grants WHERE model='Credential'")
+        .get()
+    ).toEqual({ count: 0 });
   });
 
   it("rejects ambiguous token resource indicators", async () => {

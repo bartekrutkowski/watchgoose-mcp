@@ -65,7 +65,7 @@ describe("marketplace distribution repository", () => {
     expect(workflow).toContain('if [ -z "$DEPLOY_KEY" ]; then');
     expect(workflow.match(/uses: actions\/checkout@/g)).toHaveLength(2);
     expect(workflow).toMatch(
-      /uses: actions\/checkout@v\d+\n\s+with:\n\s+persist-credentials: false\n/
+      /uses: actions\/checkout@[0-9a-f]{40} # v\d+[.\d]*\n\s+with:\n\s+persist-credentials: false\n/
     );
   });
 });

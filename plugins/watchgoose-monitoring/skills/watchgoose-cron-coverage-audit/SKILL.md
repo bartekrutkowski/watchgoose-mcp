@@ -9,9 +9,9 @@ description: >-
 
 Report evidence and read-only questions, never wrapper/heartbeat drafts or synthetic job/ping tests.
 
-Instrumentation handoff: request a separate `watchgoose-monitor-scheduled-job` workflow using its
-reviewed reference if available; otherwise say guidance is unavailable. The request is
-instrumentation-only; no test requests, commands or verification promises.
+Instrumentation handoff: request `watchgoose-monitor-scheduled-job` for one gap or
+`watchgoose-batch-monitor-scheduled-jobs` for several; otherwise say guidance is unavailable. The
+request is instrumentation-only; no test requests, commands or verification promises.
 
 ## Tool facts
 

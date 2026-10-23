@@ -191,6 +191,8 @@ Protect client configuration files that contain API keys. Prefer a dedicated pro
 least-privileged key that exposes the tools you need. Revoke a key from Watchgoose project settings
 when it is no longer in use.
 
+Report vulnerabilities privately as described in [SECURITY.md](SECURITY.md).
+
 ## Workflow skills
 
 The repository includes portable skills for auditing scheduled-job coverage, drafting single-job
@@ -205,6 +207,14 @@ The installable
 lives in `plugins/watchgoose-monitoring/`, with one canonical skill tree and remote-MCP adapters.
 Load that subfolder rather than the repository root; the old root plugin/skill paths are superseded
 without automatic migration of installed copies. The npm CLI and hosted endpoint remain unchanged.
+
+Each release also publishes the plugin as the root of
+[pixeware/watchgoose-plugin](https://github.com/pixeware/watchgoose-plugin):
+
+- Gemini CLI: `gemini extensions install https://github.com/pixeware/watchgoose-plugin`
+- Grok Build: `grok plugin install pixeware/watchgoose-plugin --trust`
+- Any agent that reads Agent Skills: `npx skills add pixeware/watchgoose-plugin`, then add the
+  hosted endpoint in your client
 
 ## Development
 
@@ -225,6 +235,13 @@ hosted server, the Claude and portable plugin manifests and the OpenAI plugin. B
 `WATCHGOOSE_RELEASE_VERSION` in `packages/core/src/constants.ts` and the matching manifests
 together; `tests/skills/release-version.test.ts` fails if any of them disagree. The OpenAI upload
 ZIP is built with `npm run build:openai-plugin`.
+
+## Support
+
+- Support: [support@watchgoose.com](mailto:support@watchgoose.com)
+- Documentation: [watchgoose.com/docs/mcp](https://watchgoose.com/docs/mcp/)
+- Privacy policy: [watchgoose.com/legal/privacy](https://watchgoose.com/legal/privacy/)
+- Terms of service: [watchgoose.com/legal/terms](https://watchgoose.com/legal/terms/)
 
 ## License
 

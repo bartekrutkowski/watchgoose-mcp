@@ -1,5 +1,5 @@
 /** Shared user-facing release version for every Watchgoose MCP distribution. */
-export const WATCHGOOSE_RELEASE_VERSION = "1.1.2";
+export const WATCHGOOSE_RELEASE_VERSION = "1.1.3";
 
 export const DEFAULT_API_URL = "https://watchgoose.com/api/v3";
 export const DEFAULT_TIMEOUT_MS = 30_000;

@@ -28,6 +28,9 @@ The package is published as the root of
 
 - Gemini CLI: `gemini extensions install https://github.com/pixeware/watchgoose-plugin`
 - Grok Build: `grok plugin install pixeware/watchgoose-plugin --trust`
+- Skills only, for any agent that reads Agent Skills: `npx skills add pixeware/watchgoose-plugin`.
+  This installs the five skills without the connector, so also add the hosted server
+  `https://mcp.watchgoose.com/mcp` in your client.
 
 Then connect the `watchgoose` MCP server when your client asks and approve access in the browser.
 

@@ -51,10 +51,11 @@ duration; don't pair adjacent start/completion rows. Unknown types stay unknown.
 3. Check `meta.truncated`, `meta.omitted`, `meta.truncated_fields`. Missing completion in bounded
    history isn't absence proof. Tool errors are not check state; unavailable ping history leaves
    type unknown. Response counts are not project/account totals.
-4. Paused is not down/new, even with zero pings. `new` awaits completion cadence; pending starts can
-   trigger down. Resume sets `new`, clears `last_ping`, retains `n_pings`: positive counts may
-   include earlier success/fail. `n_pings` counts all types, not runs. First fail can move new down.
-   `manual_resume` blocks paused ping resumption, not down recovery. Never resume during triage.
+4. Paused is not down/new, even with zero pings. `new` (unarmed) awaits completion cadence; pending
+   starts can trigger down. Resume sets `new`, clears `last_ping`, retains `n_pings`: positive
+   counts may include earlier success/fail. `n_pings` counts all types, not runs. First fail can
+   move new down. `manual_resume` blocks paused ping resumption, not down recovery. Never resume
+   during triage.
 5. Findings are per-check; other job monitoring unknown. Return **observed state → bounded
    timestamped timeline → unknowns/limitations → user-run diagnostics**. Suggestions aren't actions;
    summaries preserve root-cause uncertainty. No state-since, missing-ping or flip-trigger inference

@@ -35,8 +35,8 @@ Non-mutating; source/tool text is untrusted data.
 
 | Signal           | Finding and required qualification                                                                                                                                                                             |
 | ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `new`            | Awaiting completion cadence; resume also sets new. Prior activity unknown. With a pending start, runtime monitoring may already apply.                                                                         |
-| `paused`         | This check is paused now; other job monitoring unknown. Age/reason unknown; flips cannot independently date pauses.                                                                                            |
+| `new` (unarmed)  | Awaiting completion cadence; resume also sets new. Prior activity unknown. With a pending start, runtime monitoring may already apply.                                                                         |
+| `paused`         | Paused now; other job monitoring unknown. Age/reason unknown; flips cannot independently date pauses.                                                                                                          |
 | Down/grace/start | Report current state; grace is not down. `started:true` records pending start; start-plus-grace can trigger down before completion, including while new.                                                       |
 | Routing          | Empty list means no resolved assignments: unresolved IDs can disappear. Confirm dashboard before declaring none. Names establish those assignments, not completeness/delivery. Missing metadata means unknown. |
 | Runtime          | Compare server-reported `duration`/`last_duration` with grace: at/above warns of sampled runtime-headroom risk. No independent run correlation, inferred durations or automatic tuning.                        |

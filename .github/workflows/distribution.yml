@@ -30,10 +30,10 @@ jobs:
             exit 1
           fi
       # The publish job never pushes the source repository, so it persists no credentials.
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
           cache: npm
@@ -43,7 +43,7 @@ jobs:
         run: test "${GITHUB_REF_NAME}" = "v$(node -p 'require("./package.json").version')"
       - run: npx vitest run tests/skills
       - run: npm run build:distribution-repo
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: pixeware/watchgoose-plugin
           ssh-key: ${{ secrets.DISTRIBUTION_DEPLOY_KEY }}

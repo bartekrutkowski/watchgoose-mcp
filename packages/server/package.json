@@ -5,7 +5,7 @@
   "type": "module",
   "main": "./dist/cli.js",
   "dependencies": {
-    "@modelcontextprotocol/server": "2.0.0",
+    "@modelcontextprotocol/server": "2.3.1",
     "@watchgoose/mcp-core": "0.1.0",
     "better-sqlite3": "12.4.1",
     "oidc-provider": "9.11.5"

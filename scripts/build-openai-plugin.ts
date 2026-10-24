@@ -1,7 +1,7 @@
 // Builds the OpenAI plugin ZIP for the existing ChatGPT/Codex listing from the
 // canonical skills in plugins/watchgoose-monitoring. Run with Node 24 or later.
 import { execFileSync } from "node:child_process";
-import { cpSync, mkdirSync, readFileSync, rmSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -17,10 +17,21 @@ export function stageOpenAiPlugin(outDir: string, root = repoRoot): string {
     recursive: true,
     filter: (source) => basename(source) !== ".DS_Store",
   });
-  cpSync(
-    join(root, "plugins", "watchgoose-monitoring", ".claude-plugin", "icon.png"),
-    join(stage, "assets", "icon.png")
-  );
+  const icon = join(root, "plugins", "watchgoose-monitoring", ".claude-plugin", "icon.png");
+  cpSync(icon, join(stage, "assets", "icon.png"));
+  // OpenAI-only skill metadata (agents/openai.yaml) and the icon it references, so ChatGPT
+  // shows the Watchgoose icon instead of picking one for each skill.
+  for (const skill of readdirSync(join(root, "distribution", "openai", "skills"))) {
+    if (skill === ".DS_Store") continue;
+    const target = join(stage, "skills", skill);
+    if (!existsSync(join(target, "SKILL.md"))) throw new Error(`Unknown skill: ${skill}`);
+    cpSync(join(root, "distribution", "openai", "skills", skill), target, {
+      recursive: true,
+      filter: (source) => basename(source) !== ".DS_Store",
+    });
+    mkdirSync(join(target, "assets"), { recursive: true });
+    cpSync(icon, join(target, "assets", "icon.png"));
+  }
   cpSync(join(root, "LICENSE"), join(stage, "LICENSE"));
   return stage;
 }

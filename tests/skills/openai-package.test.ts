@@ -24,12 +24,19 @@ function files(dir: string): string[] {
 }
 
 const canonicalSkills = files(resolve(pluginRoot, "skills")).map((path) => join("skills", path));
+const skillNames = readdirSync(resolve(pluginRoot, "skills")).filter(
+  (name) => name !== ".DS_Store"
+);
+const skillMetadata = skillNames.map((name) => join("skills", name, "agents", "openai.yaml"));
+const skillIcons = skillNames.map((name) => join("skills", name, "assets", "icon.png"));
 const expectedInventory = [
   "LICENSE",
   "assets/icon.png",
   "mcp.json",
   "plugin.json",
   ...canonicalSkills,
+  ...skillMetadata,
+  ...skillIcons,
 ].sort();
 const canonicalSources: Record<string, string> = {
   LICENSE: resolve(root, "LICENSE"),
@@ -37,6 +44,12 @@ const canonicalSources: Record<string, string> = {
   "mcp.json": resolve(root, "distribution", "openai", "mcp.json"),
   "plugin.json": resolve(root, "distribution", "openai", "plugin.json"),
   ...Object.fromEntries(canonicalSkills.map((path) => [path, resolve(pluginRoot, path)])),
+  ...Object.fromEntries(
+    skillMetadata.map((path) => [path, resolve(root, "distribution", "openai", path)])
+  ),
+  ...Object.fromEntries(
+    skillIcons.map((path) => [path, resolve(pluginRoot, ".claude-plugin", "icon.png")])
+  ),
 };
 
 const https = z.url({ protocol: /^https$/ }).max(1024);
@@ -129,6 +142,17 @@ describe("OpenAI plugin package", () => {
     expect(listing.longDescription).toMatch(
       /^Watchgoose is cron job and heartbeat monitoring for scheduled tasks/
     );
+  });
+
+  it("gives every skill OpenAI metadata with the Watchgoose icon", () => {
+    for (const path of skillMetadata) {
+      const yaml = readFileSync(resolve(root, "distribution", "openai", path), "utf8");
+      expect(yaml, path).toMatch(/^interface:\n {2}display_name: "[^"]{1,40}"\n/);
+      expect(yaml, path).toMatch(/\n {2}short_description: "[^"]{1,64}"\n/);
+      expect(yaml, path).toContain('icon_small: "./assets/icon.png"');
+      expect(yaml, path).toContain('icon_large: "./assets/icon.png"');
+      expect(yaml, path).not.toMatch(/\b(free|trial|discount|coupon|upgrade|pricing|subscribe)\b/i);
+    }
   });
 
   it("keeps listing copy free of promotions that OpenAI's plugin policy prohibits", () => {

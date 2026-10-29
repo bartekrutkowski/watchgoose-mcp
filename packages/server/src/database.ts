@@ -31,6 +31,14 @@ export interface StoredCredential {
 
 export interface PendingAuthorization {
   interactionUid: string;
+  // Unix seconds when the authorization interaction started. Absent on rows
+  // written before it was recorded.
+  createdAt?: number;
+}
+
+export interface PendingRecord extends PendingAuthorization {
+  // Unix seconds after which the pending state is no longer accepted.
+  expiresAt: number;
 }
 
 interface GenericRow {
@@ -438,11 +446,13 @@ export class SqliteState {
     return parsed as StoredCredential;
   }
 
-  createPending(id: string, pending: PendingAuthorization, ttl: number): void {
-    this.upsert("authorization_codes", "Pending", id, pending as unknown as AdapterPayload, ttl);
+  createPending(id: string, pending: PendingAuthorization, ttl: number): PendingRecord {
+    const record = { createdAt: this.now(), ...pending };
+    this.upsert("authorization_codes", "Pending", id, record as unknown as AdapterPayload, ttl);
+    return { ...record, expiresAt: this.now() + ttl };
   }
 
-  findPending(id: string): PendingAuthorization | undefined {
+  findPending(id: string): PendingRecord | undefined {
     const row = this.selectRow("authorization_codes", "Pending", id);
     if (
       !row ||
@@ -452,14 +462,19 @@ export class SqliteState {
     ) {
       return undefined;
     }
-    return this.deserializePayload(
+    const payload = this.deserializePayload(
       "authorization_codes",
       "Pending",
       row
     ) as unknown as PendingAuthorization;
+    return {
+      interactionUid: payload.interactionUid,
+      ...(typeof payload.createdAt === "number" ? { createdAt: payload.createdAt } : {}),
+      expiresAt: row.expires_at,
+    };
   }
 
-  consumePending(id: string): PendingAuthorization | undefined {
+  consumePending(id: string): PendingRecord | undefined {
     const transaction = this.db.transaction(() => {
       const pending = this.findPending(id);
       if (!pending) return undefined;

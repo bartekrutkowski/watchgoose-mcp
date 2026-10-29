@@ -1,9 +1,20 @@
 import { timingSafeEqual } from "node:crypto";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
+import { WATCHGOOSE_RELEASE_VERSION } from "@watchgoose/mcp-core";
 import type { ServerConfig } from "./config.js";
-import { ALLOWED_SCOPES, MAX_DCR_BYTES, MCP_SCOPES } from "./constants.js";
+import {
+  ACCESS_TOKEN_TTL,
+  ALLOWED_SCOPES,
+  AUTHORIZATION_CODE_TTL,
+  MAX_DCR_BYTES,
+  MAX_GRANT_LIFETIME,
+  MCP_SCOPES,
+  REFRESH_TOKEN_TTL,
+  TRANSIENT_TTL,
+} from "./constants.js";
 import { SqliteState } from "./database.js";
+import { clientFamily, Logger, routeCategory } from "./logger.js";
 import { handleMcp } from "./mcp.js";
 import { createOAuthService } from "./oauth.js";
 
@@ -43,31 +54,79 @@ function hasBearerSecret(req: IncomingMessage, secret: string): boolean {
   return provided.length === expected.length && timingSafeEqual(provided, expected);
 }
 
+function hostOf(value: string): string {
+  try {
+    return new URL(value).host;
+  } catch {
+    return "invalid";
+  }
+}
+
 export interface WatchgooseService {
   state: SqliteState;
+  logger: Logger;
   start(): Promise<number>;
   close(): Promise<void>;
 }
 
 export function createWatchgooseService(config: ServerConfig): WatchgooseService {
+  const logger = new Logger(config.log, config.encryptionKey);
   const state = new SqliteState(config.databasePath, config.encryptionKey, config.now);
-  const oauth = createOAuthService(config, state);
+  const oauth = createOAuthService(config, state, logger);
   let listening = false;
   let reservedRefreshRows = 0;
 
   const server = createServer((req, res) => {
-    res.setHeader("Cache-Control", "no-store");
-    res.setHeader("Referrer-Policy", "no-referrer");
-    res.setHeader("X-Content-Type-Options", "nosniff");
-    res.setHeader("X-Frame-Options", "DENY");
-    void route(req, res).catch(() => {
-      if (!res.headersSent) fixedResponse(res, 500, "Internal server error");
-      else if (!res.writableEnded) res.end();
+    logger.runRequest(req, () => {
+      trackRequest(req, res);
+      res.setHeader("Cache-Control", "no-store");
+      res.setHeader("Referrer-Policy", "no-referrer");
+      res.setHeader("X-Content-Type-Options", "nosniff");
+      res.setHeader("X-Frame-Options", "DENY");
+      void route(req, res).catch(() => {
+        logger.error("request_failed");
+        if (!res.headersSent) fixedResponse(res, 500, "Internal server error");
+        else if (!res.writableEnded) res.end();
+      });
     });
   });
   server.requestTimeout = 30_000;
   server.headersTimeout = 10_000;
   server.keepAliveTimeout = 5_000;
+
+  // One http_request line per request, written when the response finishes
+  // or the connection closes first. The route category comes from the
+  // original path, before any internal rewrite.
+  function trackRequest(req: IncomingMessage, res: ServerResponse): void {
+    const started = process.hrtime.bigint();
+    let pathname = "/";
+    try {
+      pathname = new URL(req.url ?? "/", config.issuer).pathname;
+    } catch {
+      // Unparseable targets are categorized as other.
+    }
+    const route = routeCategory(pathname);
+    const method = /^[A-Z]{1,10}$/.test(req.method ?? "") ? req.method : "other";
+    const family = clientFamily(req.headers["user-agent"]);
+    let logged = false;
+    const done = () => {
+      if (logged) return;
+      logged = true;
+      res.removeListener("finish", done);
+      res.removeListener("close", done);
+      logger.info("http_request", {
+        method,
+        route,
+        status: res.statusCode,
+        duration_ms: Math.round(Number(process.hrtime.bigint() - started) / 1e5) / 10,
+        client_family: family,
+        client_name: logger.clientName(),
+        ...(res.writableFinished ? {} : { aborted: true }),
+      });
+    };
+    res.once("finish", done);
+    res.once("close", done);
+  }
 
   function reserveRefreshRows(rows: number): (() => void) | undefined {
     if (!state.hasRefreshCapacity(rows + reservedRefreshRows)) return undefined;
@@ -201,7 +260,7 @@ export function createWatchgooseService(config: ServerConfig): WatchgooseService
       return;
     }
     if (url.pathname === "/mcp") {
-      sendWebResponse(res, await handleMcp(req, oauth.provider, state, config));
+      sendWebResponse(res, await handleMcp(req, oauth.provider, state, config, logger));
       return;
     }
     if (url.pathname === "/register") {
@@ -246,12 +305,26 @@ export function createWatchgooseService(config: ServerConfig): WatchgooseService
 
   return {
     state,
+    logger,
     start() {
       return new Promise((resolve, reject) => {
         server.once("error", reject);
         server.listen(config.port, config.host, () => {
           server.removeListener("error", reject);
           listening = true;
+          logger.info("server_started", {
+            version: WATCHGOOSE_RELEASE_VERSION,
+            transient_ttl_s: TRANSIENT_TTL,
+            authorization_code_ttl_s: AUTHORIZATION_CODE_TTL,
+            access_token_ttl_s: ACCESS_TOKEN_TTL,
+            refresh_token_ttl_s: REFRESH_TOKEN_TTL,
+            max_grant_lifetime_s: MAX_GRANT_LIFETIME,
+            issuer_host: hostOf(config.issuer),
+            callback_host: hostOf(config.callbackUrl),
+            connect_host: hostOf(config.connectUrl),
+            handoff_host: hostOf(config.handoffUrl),
+            api_host: hostOf(config.apiUrl),
+          });
           config.onListen?.(server);
           resolve((server.address() as AddressInfo).port);
         });

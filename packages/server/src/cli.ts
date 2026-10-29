@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { loadProductionConfig } from "./config.js";
 import { SqliteState } from "./database.js";
+import { Logger } from "./logger.js";
 import { createWatchgooseService } from "./service.js";
 
 function option(name: string): string | undefined {
@@ -34,13 +35,18 @@ async function main(): Promise<void> {
   if (command !== "serve") throw new Error("unknown command");
   const service = createWatchgooseService(config);
   await service.start();
-  console.log("watchgoose-mcp server listening");
-  const shutdown = () => void service.close().then(() => process.exit(0));
+  const shutdown = () => {
+    service.logger.info("server_stopping");
+    void service.close().then(() => process.exit(0));
+  };
   process.once("SIGINT", shutdown);
   process.once("SIGTERM", shutdown);
 }
 
-main().catch(() => {
-  console.error("watchgoose-mcp: fatal startup error");
+main().catch((error: unknown) => {
+  // Only the error class name: startup errors can quote file paths or values.
+  new Logger().error("startup_failed", {
+    error_name: error instanceof Error ? error.name.slice(0, 60) : "unknown",
+  });
   process.exitCode = 1;
 });

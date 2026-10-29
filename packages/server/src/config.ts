@@ -9,6 +9,7 @@ import {
   ISSUER,
   RESOURCE,
 } from "./constants.js";
+import type { LogSink } from "./logger.js";
 
 export interface ServerConfig {
   host: string;
@@ -28,6 +29,8 @@ export interface ServerConfig {
   fetch: typeof globalThis.fetch;
   now: () => number;
   onListen?: ((server: Server) => void) | undefined;
+  // Receives one JSON log line at a time. Defaults to stdout.
+  log?: LogSink | undefined;
 }
 
 function readSecret(path: string | undefined, variable: string): Buffer {

@@ -16,7 +16,9 @@ export const REFRESH_TOKEN_TTL = 30 * 24 * 60 * 60;
 export const MAX_GRANT_LIFETIME = 365 * 24 * 60 * 60;
 export const REFRESH_TOKEN_REUSE_INTERVAL = 10 * 60;
 export const AUTHORIZATION_CODE_TTL = 60;
-export const TRANSIENT_TTL = 10 * 60;
+// Pending state, provider Interaction and Session for one authorization. Django
+// allows the same 30 minutes for its side, which covers an emailed approval code.
+export const TRANSIENT_TTL = 30 * 60;
 export const CLIENT_REGISTRATION_TTL = 30 * 24 * 60 * 60;
 export const MAX_DCR_CLIENTS = 10_000;
 export const MAX_TRANSIENT_ROWS = 50_000;

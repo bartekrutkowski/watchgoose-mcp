@@ -5,11 +5,16 @@ import {
   createMcpHandler,
   isLegacyRequest,
 } from "@modelcontextprotocol/server";
-import { registerWatchgooseTools, WATCHGOOSE_RELEASE_VERSION } from "@watchgoose/mcp-core";
+import {
+  mapToolError,
+  registerWatchgooseTools,
+  WATCHGOOSE_RELEASE_VERSION,
+} from "@watchgoose/mcp-core";
 import type Provider from "oidc-provider";
 import type { ServerConfig } from "./config.js";
 import { MAX_MCP_REQUEST_BYTES } from "./constants.js";
 import type { SqliteState, StoredCredential } from "./database.js";
+import { clientFamily, type Logger } from "./logger.js";
 import { isAllowedOrigin } from "./security.js";
 
 const REJECTED_METHODS = new Set([
@@ -25,6 +30,31 @@ function jsonError(status: number, code: number, message: string): Response {
     { jsonrpc: "2.0", error: { code, message }, id: null },
     { status, headers: { "Content-Type": "application/json" } }
   );
+}
+
+export type AuthRejection =
+  | "no_token"
+  | "malformed"
+  | "unknown_or_expired_token"
+  | "no_credential"
+  | "insufficient_scope"
+  | "origin_unauthorized";
+
+function logRejection(
+  logger: Logger,
+  req: IncomingMessage,
+  reason: AuthRejection,
+  fields: { clientName?: string | undefined; grantId?: string | undefined } = {}
+): void {
+  logger.setClientName(fields.clientName);
+  const clientName = logger.clientName();
+  logger.write(reason === "no_token" ? "info" : "warn", "mcp_auth_rejected", {
+    reason,
+    ...(clientName
+      ? { client_name: clientName }
+      : { client_family: clientFamily(req.headers["user-agent"]) }),
+    grant_ref: logger.ref(fields.grantId),
+  });
 }
 
 export function bearerError(
@@ -89,11 +119,31 @@ function createWebRequest(req: IncomingMessage, config: ServerConfig, body: Buff
   });
 }
 
+// Tool failures become a friendly message for the assistant; log the error
+// class and API status so they are visible to us too. Never the message
+// body, arguments or API detail, which may contain user data.
+function toolErrorLogger(logger: Logger, grantId: string): (error: unknown) => string {
+  return (error) => {
+    const status =
+      typeof error === "object" && error !== null && "status" in error
+        ? Number((error as { status: unknown }).status)
+        : undefined;
+    logger.warn("mcp_tool_failed", {
+      error_name: error instanceof Error ? error.name.slice(0, 60) : typeof error,
+      api_status: Number.isInteger(status) ? status : undefined,
+      grant_ref: logger.ref(grantId),
+      client_name: logger.clientName(),
+    });
+    return mapToolError(error);
+  };
+}
+
 function createMcpServer(
   credential: StoredCredential,
   config: ServerConfig,
   originFetch: typeof globalThis.fetch,
-  scopes: Set<string>
+  scopes: Set<string>,
+  mapError: (error: unknown) => string
 ): McpServer {
   const server = new McpServer(
     { name: "watchgoose-mcp", version: WATCHGOOSE_RELEASE_VERSION },
@@ -106,6 +156,7 @@ function createMcpServer(
     access: canWrite ? "read-write" : "read-only",
     enableWrites: canWrite,
     fetch: originFetch,
+    mapError,
   });
   return server;
 }
@@ -166,10 +217,30 @@ async function authenticate(
   req: IncomingMessage,
   provider: Provider,
   state: SqliteState,
-  config: ServerConfig
+  config: ServerConfig,
+  logger: Logger
 ): Promise<{ credential: StoredCredential; scopes: Set<string>; grantId: string } | Response> {
-  const match = /^Bearer ([A-Za-z0-9_-]{32,})$/i.exec(req.headers.authorization ?? "");
-  if (!match) return bearerError(config, 401, "invalid_token");
+  const reject = (
+    reason: AuthRejection,
+    fields: { clientName?: string | undefined; grantId?: string | undefined } = {}
+  ) => {
+    logRejection(logger, req, reason, fields);
+    return reason === "insufficient_scope"
+      ? bearerError(config, 403, "insufficient_scope")
+      : bearerError(config, 401, "invalid_token");
+  };
+  const clientName = async (clientId: string | undefined) => {
+    if (!clientId) return undefined;
+    try {
+      return (await provider.Client.find(clientId))?.clientName;
+    } catch {
+      return undefined;
+    }
+  };
+  const header = req.headers.authorization;
+  if (header === undefined || header === "") return reject("no_token");
+  const match = /^Bearer ([A-Za-z0-9_-]{32,})$/i.exec(header);
+  if (!match) return reject("malformed");
   const token = await provider.AccessToken.find(match[1]!);
   if (
     !token ||
@@ -179,14 +250,17 @@ async function authenticate(
     (token.aud !== config.resource &&
       !(Array.isArray(token.aud) && token.aud.length === 1 && token.aud[0] === config.resource))
   ) {
-    return bearerError(config, 401, "invalid_token");
+    return reject("unknown_or_expired_token", { clientName: await clientName(token?.clientId) });
   }
   const scopes = new Set(token.scope?.split(" ").filter(Boolean));
   if (
     !scopes.has("mcp:read") ||
     [...scopes].some((scope) => !["mcp:read", "mcp:write", "offline_access"].includes(scope))
   ) {
-    return bearerError(config, 403, "insufficient_scope");
+    return reject("insufficient_scope", {
+      clientName: await clientName(token.clientId),
+      grantId: token.grantId,
+    });
   }
   const [client, grant] = await Promise.all([
     provider.Client.find(token.clientId),
@@ -200,10 +274,14 @@ async function authenticate(
     grant.accountId !== token.accountId ||
     [...scopes].some((scope) => scope !== "offline_access" && !granted.has(scope))
   ) {
-    return bearerError(config, 401, "invalid_token");
+    return reject("unknown_or_expired_token", {
+      clientName: client?.clientName,
+      grantId: token.grantId,
+    });
   }
+  logger.setClientName(client.clientName);
   const credential = state.loadCredential(token.grantId);
-  if (!credential) return bearerError(config, 401, "invalid_token");
+  if (!credential) return reject("no_credential", { grantId: token.grantId });
   return { credential, scopes, grantId: token.grantId };
 }
 
@@ -211,7 +289,8 @@ export async function handleMcp(
   req: IncomingMessage,
   provider: Provider,
   state: SqliteState,
-  config: ServerConfig
+  config: ServerConfig,
+  logger: Logger
 ): Promise<Response> {
   if (!isAllowedOrigin(req.headers.origin)) {
     return jsonError(403, -32600, "Invalid Origin");
@@ -222,7 +301,7 @@ export async function handleMcp(
   if (!acceptsJson(req.headers.accept)) {
     return jsonError(406, -32600, "Only JSON responses are supported");
   }
-  const authentication = await authenticate(req, provider, state, config);
+  const authentication = await authenticate(req, provider, state, config, logger);
   if (authentication instanceof Response) return authentication;
   const rawBody = await readBody(req);
   if (!rawBody) return jsonError(413, -32600, "Request too large");
@@ -257,17 +336,26 @@ export async function handleMcp(
     ) {
       throw new Error("unexpected origin headers");
     }
-    const response = await config.fetch(input, init);
+    const correlationId = logger.requestId();
+    if (correlationId) headers.set("X-Correlation-ID", correlationId);
+    const response = await config.fetch(input, { ...init, headers });
     if (response.status === 401) originUnauthorized = true;
     return response;
   };
   const request = createWebRequest(req, config, rawBody);
   const createServer = () =>
-    createMcpServer(authentication.credential, config, originFetch, authentication.scopes);
+    createMcpServer(
+      authentication.credential,
+      config,
+      originFetch,
+      authentication.scopes,
+      toolErrorLogger(logger, authentication.grantId)
+    );
   const response = (await isLegacyRequest(request.clone(), body))
     ? await serveLegacy(request, body, createServer)
     : await serveModern(request, body, createServer);
   if (originUnauthorized) {
+    logRejection(logger, req, "origin_unauthorized", { grantId: authentication.grantId });
     state.invalidateGrant(authentication.grantId);
     await response.body?.cancel();
     return bearerError(config, 401, "invalid_token");

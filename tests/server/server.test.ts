@@ -12,6 +12,7 @@ import {
   MAX_REFRESH_ROWS,
   REFRESH_TOKEN_REUSE_INTERVAL,
   REFRESH_TOKEN_TTL,
+  TRANSIENT_TTL,
 } from "../../packages/server/src/constants.js";
 
 const ISSUER = "https://mcp.watchgoose.com";
@@ -24,7 +25,19 @@ interface RunningService {
   base: string;
   config: ServerConfig;
   state: SqliteState;
+  // Every JSON log line the service wrote.
+  logs: string[];
+  // Extra headers sent with every request() call.
+  headers: Record<string, string>;
   close(): Promise<void>;
+}
+
+type LogLine = Record<string, unknown>;
+
+function logEntries(service: RunningService, event?: string): LogLine[] {
+  return service.logs
+    .map((line) => JSON.parse(line) as LogLine)
+    .filter((entry) => event === undefined || entry.event === event);
 }
 
 const running: RunningService[] = [];
@@ -74,6 +87,7 @@ async function start(
   openAiAppsChallengeToken?: string
 ): Promise<RunningService> {
   const directory = mkdtempSync(join(tmpdir(), "watchgoose-mcp-server-"));
+  const logs: string[] = [];
   const config: ServerConfig = {
     host: "127.0.0.1",
     port: 0,
@@ -91,6 +105,7 @@ async function start(
     encryptionKey: Buffer.alloc(32, 9),
     fetch: fetchFn,
     now: () => Math.floor(Date.now() / 1000),
+    log: (line) => logs.push(line),
   };
   const service = createWatchgooseService(config);
   const port = await service.start();
@@ -98,6 +113,8 @@ async function start(
     base: `http://127.0.0.1:${port}`,
     config,
     state: service.state,
+    logs,
+    headers: {},
     close: () => service.close(),
   };
   running.push(item);
@@ -141,6 +158,9 @@ async function request(
   cookies?: string
 ): Promise<Response> {
   const headers = new Headers(init.headers);
+  for (const [name, value] of Object.entries(service.headers)) {
+    if (!headers.has(name)) headers.set(name, value);
+  }
   headers.set("X-Forwarded-Proto", "https");
   headers.set("X-Forwarded-Host", "mcp.watchgoose.com");
   if (cookies) headers.set("Cookie", cookies);
@@ -181,19 +201,30 @@ async function sha256Challenge(verifier: string): Promise<string> {
 interface OAuthResult {
   accessToken: string;
   refreshToken?: string;
+  authorizationCode: string;
   clientId: string;
   cookies: string;
   callbackState: string;
+  codeChallenge: string;
   tokenBody: Record<string, unknown>;
 }
 
-async function oauthFlow(
+interface PendingFlow {
+  clientId: string;
+  verifier: string;
+  codeChallenge: string;
+  cookies: string;
+  consent: URL;
+  state: string;
+  beginPath: string;
+}
+
+// Registers a client and follows /authorize to the Django connect redirect.
+async function startAuthorization(
   service: RunningService,
   requestedScope = "mcp:read offline_access",
-  effectiveScope: "read" | "read+write" = "read",
-  handoffControl?: { started(): void; wait: Promise<void> },
   clientState = "client-state"
-): Promise<OAuthResult> {
+): Promise<PendingFlow> {
   const register = await request(service, "/register", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -209,6 +240,7 @@ async function oauthFlow(
   expect(register.status, await register.clone().text()).toBe(201);
   const clientId = ((await register.json()) as { client_id: string }).client_id;
   const verifier = "v".repeat(64);
+  const codeChallenge = await sha256Challenge(verifier);
   const authorize = new URL("/authorize", service.base);
   authorize.search = new URLSearchParams({
     response_type: "code",
@@ -216,13 +248,13 @@ async function oauthFlow(
     redirect_uri: "http://127.0.0.1:49152/callback",
     scope: requestedScope,
     state: clientState,
-    code_challenge: await sha256Challenge(verifier),
+    code_challenge: codeChallenge,
     code_challenge_method: "S256",
     resource: RESOURCE,
   }).toString();
   const first = await request(service, `${authorize.pathname}${authorize.search}`);
   expect(first.status, await first.clone().text()).toBe(303);
-  let cookies = cookieValues(first);
+  const cookies = cookieValues(first);
   const interactionCookies = first.headers
     .getSetCookie()
     .filter((cookie) => cookie.startsWith("__Host-wg_interaction"));
@@ -250,7 +282,31 @@ async function oauthFlow(
     scope: requestedScope,
     code_challenge_method: "S256",
   });
+  expect(consent.searchParams.get("expires_at")).toMatch(/^[1-9]\d*$/);
   const state = consent.searchParams.get("state")!;
+  return {
+    clientId,
+    verifier,
+    codeChallenge,
+    cookies,
+    consent,
+    state,
+    beginPath: `${internal.pathname}${internal.search}`,
+  };
+}
+
+async function oauthFlow(
+  service: RunningService,
+  requestedScope = "mcp:read offline_access",
+  effectiveScope: "read" | "read+write" = "read",
+  handoffControl?: { started(): void; wait: Promise<void> },
+  clientState = "client-state",
+  beforeCallback?: () => void
+): Promise<OAuthResult> {
+  const pending = await startAuthorization(service, requestedScope, clientState);
+  const { clientId, verifier, state } = pending;
+  let cookies = pending.cookies;
+  beforeCallback?.();
 
   const originalFetch = service.config.fetch as ReturnType<typeof vi.fn>;
   originalFetch.mockImplementationOnce(async (_input: RequestInfo | URL, init?: RequestInit) => {
@@ -322,9 +378,11 @@ async function oauthFlow(
     ...(typeof tokenBody.refresh_token === "string"
       ? { refreshToken: tokenBody.refresh_token }
       : {}),
+    authorizationCode,
     clientId,
     cookies,
     callbackState: state,
+    codeChallenge: pending.codeChallenge,
     tokenBody,
   };
 }
@@ -1144,6 +1202,8 @@ describe("OAuth and MCP integration", () => {
       .flat()
       .join(" ");
     expect(logs).toBe("");
+    const structured = service.logs.join("\n");
+    expect(structured).toContain('"event":"mcp_auth_rejected"');
     for (const sentinel of [
       API_KEY,
       flow.accessToken,
@@ -1164,6 +1224,7 @@ describe("OAuth and MCP integration", () => {
       expect(text).not.toContain(sentinel);
       expect(errorText).not.toContain(sentinel);
       expect(logs).not.toContain(sentinel);
+      expect(structured).not.toContain(sentinel);
     }
   });
 
@@ -1194,6 +1255,69 @@ describe("OAuth and MCP integration", () => {
     expect(first.headers.get("WWW-Authenticate")).toContain('error="invalid_token"');
     expect(await first.text()).not.toContain(API_KEY);
     expect((await call()).status).toBe(401);
+  });
+
+  it("sends the request id to the Watchgoose app as X-Correlation-ID", async () => {
+    const fetchFn = makeOriginFetch();
+    const service = await start(fetchFn);
+    service.headers = { "X-Request-ID": "corr-test-1" };
+    const flow = await oauthFlow(service);
+    await request(service, "/mcp", {
+      method: "POST",
+      headers: {
+        Accept: "application/json, text/event-stream",
+        Authorization: `Bearer ${flow.accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 5,
+        method: "tools/call",
+        params: { name: "list_checks", arguments: {} },
+      }),
+    });
+    const calls = (fetchFn as ReturnType<typeof vi.fn>).mock.calls as [
+      RequestInfo | URL,
+      RequestInit | undefined,
+    ][];
+    const sent = calls.map(([input, init]) => ({
+      path: new URL(input instanceof Request ? input.url : input).pathname,
+      correlation: new Headers(init?.headers).get("X-Correlation-ID"),
+    }));
+    expect(sent).toContainEqual({ path: "/mcp/handoff/exchange/", correlation: "corr-test-1" });
+    expect(sent).toContainEqual({ path: "/api/v3/checks/", correlation: "corr-test-1" });
+  });
+
+  it("logs failed tool calls with the API status and no response detail", async () => {
+    const fetchFn = makeOriginFetch();
+    const service = await start(fetchFn);
+    const flow = await oauthFlow(service);
+    (fetchFn as ReturnType<typeof vi.fn>).mockImplementationOnce(async () =>
+      Response.json({ error: "detail-secret" }, { status: 503 })
+    );
+    const response = await request(service, "/mcp", {
+      method: "POST",
+      headers: {
+        Accept: "application/json, text/event-stream",
+        Authorization: `Bearer ${flow.accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 4,
+        method: "tools/call",
+        params: { name: "list_checks", arguments: {} },
+      }),
+    });
+    expect(response.status).toBe(200);
+    expect(await response.text()).toContain('"isError":true');
+    const failures = service.logs
+      .map((line) => JSON.parse(line) as Record<string, unknown>)
+      .filter((entry) => entry.event === "mcp_tool_failed");
+    expect(failures).toHaveLength(1);
+    expect(failures[0]).toMatchObject({ level: "warn", api_status: 503 });
+    expect(service.logs.join("\n")).not.toContain("detail-secret");
+    expect(service.logs.join("\n")).not.toContain(API_KEY);
   });
 
   it("rejects missing PKCE, wrong audience, callback replay, and unsupported MCP modes", async () => {
@@ -1241,5 +1365,340 @@ describe("OAuth and MCP integration", () => {
     expect(unauthorized.headers.get("WWW-Authenticate")).toContain(
       `${ISSUER}/.well-known/oauth-protected-resource/mcp`
     );
+  });
+});
+
+describe("connection deadline, expiry pages and logs", () => {
+  const T0 = new Date("2026-01-01T00:00:00Z");
+  const t0 = Math.floor(T0.getTime() / 1000);
+
+  function handoffCalls(service: RunningService): number {
+    return (service.config.fetch as ReturnType<typeof vi.fn>).mock.calls.filter(([input]) =>
+      String(input instanceof Request ? input.url : input).includes("/mcp/handoff/exchange/")
+    ).length;
+  }
+
+  async function expectExpiryPage(response: Response): Promise<string> {
+    expect(response.status).toBe(400);
+    expect(response.headers.get("Content-Type")).toBe("text/html; charset=utf-8");
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
+    expect(response.headers.get("Location")).toBeNull();
+    const html = await response.text();
+    expect(html).toContain("<title>This connection request has expired</title>");
+    expect(html).toContain("already used");
+    expect(html).toContain("start connecting Watchgoose again");
+    expect(html).toContain('href="https://watchgoose.com/docs/mcp/"');
+    expect(html).not.toMatch(/https?:\/\/(?!watchgoose\.com\/docs\/mcp\/)/);
+    return html;
+  }
+
+  it("sends Django the absolute deadline of the pending authorization", async () => {
+    vi.useFakeTimers({ toFake: ["Date"], now: T0 });
+    const service = await start();
+    const pending = await startAuthorization(service);
+    expect(TRANSIENT_TTL).toBe(30 * 60);
+    expect(pending.consent.searchParams.get("expires_at")).toBe(String(t0 + TRANSIENT_TTL));
+    expect(logEntries(service, "oauth_interaction_started")).toEqual([
+      expect.objectContaining({
+        level: "info",
+        client_name: "Claude Test",
+        expires_at: t0 + TRANSIENT_TTL,
+        interaction_ref: expect.stringMatching(/^[0-9a-f]{12}$/),
+      }),
+    ]);
+    expect(logEntries(service, "oauth_begin")).toEqual([
+      expect.objectContaining({ result: "ok", expires_at: t0 + TRANSIENT_TTL }),
+    ]);
+  });
+
+  it("completes an authorization approved 11 minutes after it started", async () => {
+    vi.useFakeTimers({ toFake: ["Date"], now: T0 });
+    const service = await start();
+    const flow = await oauthFlow(
+      service,
+      "mcp:read offline_access",
+      "read",
+      undefined,
+      "client-state",
+      () => vi.setSystemTime((t0 + 11 * 60) * 1000)
+    );
+    expect(flow.refreshToken).toBeTypeOf("string");
+    const tools = await request(service, "/mcp", {
+      method: "POST",
+      headers: {
+        Accept: "application/json, text/event-stream",
+        Authorization: `Bearer ${flow.accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: toolListBody(),
+    });
+    expect(tools.status).toBe(200);
+    const [completed] = logEntries(service, "oauth_complete");
+    expect(completed).toMatchObject({ result: "ok", duration_s: 660, client_name: "Claude Test" });
+    expect(logEntries(service, "oauth_grant_issued")).toEqual([
+      expect.objectContaining({
+        refresh_token_issued: true,
+        client_name: "Claude Test",
+        flow_duration_s: 660,
+        grant_ref: completed!.grant_ref,
+      }),
+    ]);
+  });
+
+  it("shows the expiry page after 30 minutes and never exchanges the handoff", async () => {
+    vi.useFakeTimers({ toFake: ["Date"], now: T0 });
+    const service = await start();
+    const pending = await startAuthorization(service);
+    vi.setSystemTime((t0 + TRANSIENT_TTL) * 1000);
+
+    await expectExpiryPage(await request(service, pending.beginPath, {}, pending.cookies));
+    await expectExpiryPage(
+      await request(
+        service,
+        `/oauth/callback?state=${pending.state}&code=late-handoff`,
+        {},
+        pending.cookies
+      )
+    );
+    expect(handoffCalls(service)).toBe(0);
+    expect(logEntries(service, "oauth_begin").at(-1)).toMatchObject({
+      result: "expired",
+      reason: "pending_missing",
+    });
+    expect(logEntries(service, "oauth_complete")).toEqual([
+      expect.objectContaining({ level: "info", result: "expired", reason: "pending_missing" }),
+    ]);
+  });
+
+  it("answers a callback without state with the expiry page", async () => {
+    const service = await start();
+    await expectExpiryPage(await request(service, "/oauth/callback?code=orphan"));
+    expect(handoffCalls(service)).toBe(0);
+    expect(logEntries(service, "oauth_complete")).toEqual([
+      expect.objectContaining({ result: "expired", reason: "missing_state" }),
+    ]);
+  });
+
+  it("answers a mismatched interaction with the connection failed page", async () => {
+    const service = await start();
+    const first = await startAuthorization(service);
+    const second = await startAuthorization(service, "mcp:read", "other-state");
+    const response = await request(service, first.beginPath, {}, second.cookies);
+    expect(response.status).toBe(500);
+    expect(response.headers.get("Content-Type")).toBe("text/html; charset=utf-8");
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
+    expect(response.headers.get("Location")).toBeNull();
+    const html = await response.text();
+    expect(html).toContain("<title>Connection failed</title>");
+    expect(html).toContain("nothing was connected");
+    expect(logEntries(service, "oauth_begin").at(-1)).toMatchObject({
+      level: "error",
+      result: "error",
+      reason: "binding_mismatch",
+    });
+  });
+
+  it("logs each MCP authentication rejection reason", async () => {
+    const fetchFn = makeOriginFetch();
+    const service = await start(fetchFn);
+    const call = (headers: Record<string, string>) =>
+      request(service, "/mcp", {
+        method: "POST",
+        headers: {
+          Accept: "application/json, text/event-stream",
+          "Content-Type": "application/json",
+          "User-Agent": "Probe-Client/2.1 (test)",
+          ...headers,
+        },
+        body: toolListBody(),
+      });
+    const rejection = () => logEntries(service, "mcp_auth_rejected").at(-1);
+
+    expect((await call({})).status).toBe(401);
+    expect(rejection()).toMatchObject({
+      level: "info",
+      reason: "no_token",
+      client_family: "Probe-Client/2.1",
+    });
+    expect((await call({ Authorization: "Basic dXNlcjpwYXNz" })).status).toBe(401);
+    expect(rejection()).toMatchObject({ level: "warn", reason: "malformed" });
+    expect((await call({ Authorization: `Bearer ${"u".repeat(43)}` })).status).toBe(401);
+    expect(rejection()).toMatchObject({ reason: "unknown_or_expired_token" });
+
+    const flow = await oauthFlow(service);
+    const accessTokens = service.state.adapter("AccessToken");
+    const original = (await accessTokens.find(flow.accessToken))!;
+    await accessTokens.upsert(flow.accessToken, { ...original, scope: "offline_access" }, 3600);
+    expect((await call({ Authorization: `Bearer ${flow.accessToken}` })).status).toBe(403);
+    expect(rejection()).toMatchObject({
+      reason: "insufficient_scope",
+      client_name: "Claude Test",
+      grant_ref: expect.stringMatching(/^[0-9a-f]{12}$/),
+    });
+    await accessTokens.upsert(flow.accessToken, original, 3600);
+
+    service.state.db
+      .prepare("UPDATE refresh_grants SET expires_at=1 WHERE model='Credential'")
+      .run();
+    expect((await call({ Authorization: `Bearer ${flow.accessToken}` })).status).toBe(401);
+    expect(rejection()).toMatchObject({ reason: "no_credential", client_name: "Claude Test" });
+
+    const second = await oauthFlow(service);
+    (fetchFn as ReturnType<typeof vi.fn>).mockImplementationOnce(async () =>
+      Response.json({ error: "unauthorized" }, { status: 401 })
+    );
+    const origin = await request(service, "/mcp", {
+      method: "POST",
+      headers: {
+        Accept: "application/json, text/event-stream",
+        Authorization: `Bearer ${second.accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 3,
+        method: "tools/call",
+        params: { name: "list_checks", arguments: {} },
+      }),
+    });
+    expect(origin.status).toBe(401);
+    expect(rejection()).toMatchObject({
+      reason: "origin_unauthorized",
+      client_name: "Claude Test",
+    });
+    expect(logEntries(service, "mcp_auth_rejected").map((entry) => entry.reason)).toEqual([
+      "no_token",
+      "malformed",
+      "unknown_or_expired_token",
+      "insufficient_scope",
+      "no_credential",
+      "origin_unauthorized",
+    ]);
+  });
+
+  it("writes one http_request line per request and accepts only safe request ids", async () => {
+    const service = await start();
+    for (const requestId of ["req-123-ABC", "bad id!", "x".repeat(65), "caf\u00e9"]) {
+      const response = await request(service, "/healthz", {
+        headers: { "X-Request-ID": requestId, "User-Agent": "curl/8.7.1" },
+      });
+      expect(response.status).toBe(200);
+    }
+    await request(service, "/.well-known/oauth-authorization-server");
+    await new Promise((resolve) => setImmediate(resolve));
+    const lines = logEntries(service, "http_request");
+    expect(lines.map((line) => line.route)).toEqual([
+      "health",
+      "health",
+      "health",
+      "health",
+      "oauth_discovery",
+    ]);
+    expect(lines[0]).toMatchObject({
+      level: "info",
+      method: "GET",
+      status: 200,
+      client_family: "curl/8.7.1",
+      request_id: "req-123-ABC",
+    });
+    expect(lines[0]!.duration_ms).toBeTypeOf("number");
+    expect(new Date(lines[0]!.ts as string).toISOString()).toBe(lines[0]!.ts);
+    for (const line of lines.slice(1)) expect(line).not.toHaveProperty("request_id");
+    expect(logEntries(service, "server_started")).toEqual([
+      expect.objectContaining({
+        transient_ttl_s: TRANSIENT_TTL,
+        authorization_code_ttl_s: 60,
+        callback_host: "mcp.watchgoose.com",
+        connect_host: "watchgoose.com",
+        version: expect.stringMatching(/^\d+\.\d+\.\d+$/),
+      }),
+    ]);
+  });
+
+  it("never logs tokens, codes, state, secrets, cookies, emails or addresses", async () => {
+    const service = await start();
+    const email = "owner.sentinel@example.com";
+    service.headers = {
+      "User-Agent": `Claude-User/1.0 (+${email})`,
+      "X-Forwarded-For": "203.0.113.77",
+      "X-Request-ID": "flow-redaction-1",
+    };
+    const flow = await oauthFlow(
+      service,
+      "mcp:read offline_access",
+      "read",
+      undefined,
+      `state-${email}`
+    );
+    const refreshed = await refreshWith(service, flow.clientId, flow.refreshToken!);
+    expect(refreshed.status).toBe(200);
+    const rotated = (await refreshed.json()) as { access_token: string; refresh_token: string };
+    const mcp = await request(service, "/mcp", {
+      method: "POST",
+      headers: {
+        Accept: "application/json, text/event-stream",
+        Authorization: `Bearer ${rotated.access_token}`,
+        "Content-Type": "application/json",
+      },
+      body: toolListBody(),
+    });
+    expect(mcp.status).toBe(200);
+    const rejected = await request(service, "/mcp", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${"leaked-bearer-sentinel".padEnd(40, "z")}`,
+        "Content-Type": "application/json",
+      },
+      body: toolListBody(),
+    });
+    expect(rejected.status).toBe(401);
+    await new Promise((resolve) => setImmediate(resolve));
+
+    const output = service.logs.join("\n");
+    for (const line of service.logs) {
+      const entry = JSON.parse(line) as LogLine;
+      expect(entry.ts).toBeTypeOf("string");
+      expect(entry.event).toBeTypeOf("string");
+      expect(["info", "warn", "error"]).toContain(entry.level);
+    }
+    for (const event of [
+      "server_started",
+      "oauth_interaction_started",
+      "oauth_begin",
+      "oauth_complete",
+      "oauth_grant_issued",
+      "oidc_refresh_token_consumed",
+      "mcp_auth_rejected",
+      "http_request",
+    ]) {
+      expect(output).toContain(`"event":"${event}"`);
+    }
+    expect(output).toContain('"request_id":"flow-redaction-1"');
+    const cookieValues = flow.cookies.split("; ").map((pair) => pair.slice(pair.indexOf("=") + 1));
+    for (const secret of [
+      flow.accessToken,
+      flow.refreshToken!,
+      rotated.access_token,
+      rotated.refresh_token,
+      flow.authorizationCode,
+      flow.callbackState,
+      flow.codeChallenge,
+      flow.clientId,
+      ...cookieValues.filter((value) => value.length >= 8),
+      "single-use-handoff",
+      API_KEY,
+      "w".repeat(32),
+      "m".repeat(32),
+      email,
+      "sentinel@",
+      "203.0.113.77",
+      "leaked-bearer-sentinel",
+      "Bearer",
+      "client-state",
+      "redirect_uri",
+      "127.0.0.1",
+    ]) {
+      expect(output, secret).not.toContain(secret);
+    }
   });
 });

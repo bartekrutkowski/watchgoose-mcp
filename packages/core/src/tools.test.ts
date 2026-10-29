@@ -412,7 +412,7 @@ describe("tool visibility", () => {
         name: "create_check",
         title: "Create a Watchgoose check",
         description:
-          "Create a simple timeout check or a cron/OnCalendar schedule check. When unique fields match an existing check, update that check instead: supplied settings replace existing values, and channels: [] removes all alert integration assignments. Omitted fields on a matched check remain unchanged. All fields are optional; schedule takes precedence over timeout. Only newly created checks remain unarmed until their first successful ping.",
+          "Create a simple timeout check or a cron/OnCalendar schedule check. When unique fields match an existing check, update that check instead: supplied settings replace existing values, and channels: [] removes all alert integration assignments. Omitted fields on a matched check remain unchanged. All fields are optional; schedule takes precedence over timeout. Only newly created checks remain unarmed until their first successful ping. Creating a check does not instrument the job, and this server never returns ping URLs: after creating one, tell the user to open the check in their Watchgoose dashboard, copy its ping URL from Usage Examples, and request it at the end of the job after the work succeeds.",
         annotations: {
           readOnlyHint: false,
           destructiveHint: true,

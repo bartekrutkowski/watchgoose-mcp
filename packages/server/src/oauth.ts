@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import type { EventEmitter } from "node:events";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import Provider, {
   errors,
@@ -19,7 +20,8 @@ import {
   TRANSIENT_TTL,
 } from "./constants.js";
 import { deriveCookieKeys, deriveSigningJwk, opaqueAccountId, signCookie } from "./crypto.js";
-import type { SqliteState, StoredCredential } from "./database.js";
+import type { PendingRecord, SqliteState, StoredCredential } from "./database.js";
+import { safeLabel, type Logger } from "./logger.js";
 import { validRequestedScopes } from "./security.js";
 
 interface HandoffConnection {
@@ -43,6 +45,88 @@ export interface OAuthService {
 }
 
 const MAX_OAUTH_STATE_LENGTH = 2_048;
+const MAX_TRACKED_FLOWS = 1_000;
+
+// A failure with a fixed, loggable reason category.
+class FlowError extends Error {
+  constructor(readonly reason: string) {
+    super(reason);
+  }
+}
+
+type HandoffFailure = "network" | "http_status" | "too_large" | "invalid_response";
+
+class HandoffExchangeError extends Error {
+  constructor(
+    readonly reason: HandoffFailure,
+    readonly status?: number
+  ) {
+    super("handoff exchange failed");
+  }
+}
+
+function escapeHtml(value: string): string {
+  return value.replace(
+    /[&<>"']/g,
+    (char) =>
+      ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char] ?? char
+  );
+}
+
+const FLOW_PAGES = {
+  expired: {
+    status: 400,
+    title: "This connection request has expired",
+    lead: "This link has expired or was already used. If you approved the connection a moment ago, go back to your AI assistant: it is probably already connected. Otherwise nothing was connected to your Watchgoose account.",
+  },
+  failed: {
+    status: 500,
+    title: "Connection failed",
+    lead: "Something went wrong and the connection could not be completed, so nothing was connected to your Watchgoose account.",
+  },
+} as const;
+
+// A self-contained page for a connection that cannot continue. It never
+// redirects back to the client: once the pending state is consumed or gone,
+// there is no trustworthy client and state to send the browser to.
+function sendFlowPage(res: ServerResponse, kind: keyof typeof FLOW_PAGES, docsUrl: string): void {
+  const page = FLOW_PAGES[kind];
+  const title = escapeHtml(page.title);
+  const body = `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>${title}</title>
+<style>
+body{margin:0;font:16px/1.6 system-ui,-apple-system,"Segoe UI",sans-serif;background:#f6f7f9;color:#1d2330}
+main{max-width:34rem;margin:12vh auto;padding:2rem;background:#fff;border-radius:12px;box-shadow:0 1px 3px rgba(0,0,0,.08)}
+h1{font-size:1.4rem;line-height:1.3;margin:0 0 1rem}
+p{margin:0 0 1rem}
+a{color:#1f5fbf}
+@media (prefers-color-scheme:dark){body{background:#14171c;color:#e6e8eb}main{background:#1d2128;box-shadow:none}a{color:#7fb0ff}}
+</style>
+</head>
+<body>
+<main>
+<h1>${title}</h1>
+<p>${escapeHtml(page.lead)}</p>
+<p>${escapeHtml("To connect, go back to your AI assistant (Claude, ChatGPT, Codex or another app) and start connecting Watchgoose again. It usually takes under a minute.")}</p>
+<p><a href="${escapeHtml(docsUrl)}">${escapeHtml("Read the Watchgoose MCP setup guide")}</a></p>
+</main>
+</body>
+</html>
+`;
+  res.statusCode = page.status;
+  res.setHeader("Content-Type", "text/html; charset=utf-8");
+  res.setHeader("Cache-Control", "no-store");
+  res.setHeader(
+    "Content-Security-Policy",
+    "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+  );
+  res.end(body);
+}
 
 function stringParam(interaction: Interaction, name: string): string | undefined {
   const value = interaction.params[name];
@@ -110,9 +194,10 @@ function parseHandoff(value: unknown): HandoffResult {
 async function readBoundedJson(response: Response): Promise<unknown> {
   const declared = Number(response.headers.get("content-length"));
   if (Number.isFinite(declared) && declared > MAX_HANDOFF_RESPONSE_BYTES) {
-    throw new Error("handoff response is too large");
+    await response.body?.cancel();
+    throw new HandoffExchangeError("too_large");
   }
-  if (!response.body) throw new Error("invalid handoff response");
+  if (!response.body) throw new HandoffExchangeError("invalid_response");
   const reader = response.body.getReader();
   const chunks: Uint8Array[] = [];
   let length = 0;
@@ -122,29 +207,48 @@ async function readBoundedJson(response: Response): Promise<unknown> {
     length += value.byteLength;
     if (length > MAX_HANDOFF_RESPONSE_BYTES) {
       await reader.cancel();
-      throw new Error("handoff response is too large");
+      throw new HandoffExchangeError("too_large");
     }
     chunks.push(value);
   }
-  return JSON.parse(Buffer.concat(chunks).toString("utf8")) as unknown;
+  try {
+    return JSON.parse(Buffer.concat(chunks).toString("utf8")) as unknown;
+  } catch {
+    throw new HandoffExchangeError("invalid_response");
+  }
 }
 
-async function exchangeHandoff(code: string, config: ServerConfig): Promise<HandoffResult> {
-  const response = await config.fetch(config.handoffUrl, {
-    method: "POST",
-    headers: {
-      Accept: "application/json",
-      Authorization: `Bearer ${config.workerSecret}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ code }),
-    redirect: "error",
-  });
+async function exchangeHandoff(
+  code: string,
+  config: ServerConfig,
+  correlationId?: string
+): Promise<HandoffResult> {
+  let response: Response;
+  try {
+    response = await config.fetch(config.handoffUrl, {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        Authorization: `Bearer ${config.workerSecret}`,
+        "Content-Type": "application/json",
+        ...(correlationId ? { "X-Correlation-ID": correlationId } : {}),
+      },
+      body: JSON.stringify({ code }),
+      redirect: "error",
+    });
+  } catch {
+    throw new HandoffExchangeError("network");
+  }
   if (!response.ok) {
     await response.body?.cancel();
-    throw new Error("handoff exchange failed");
+    throw new HandoffExchangeError("http_status", response.status);
   }
-  return parseHandoff(await readBoundedJson(response));
+  const body = await readBoundedJson(response);
+  try {
+    return parseHandoff(body);
+  } catch {
+    throw new HandoffExchangeError("invalid_response");
+  }
 }
 
 function appendResumeCookie(
@@ -183,8 +287,67 @@ function validateBinding(
   };
 }
 
-export function createOAuthService(config: ServerConfig, state: SqliteState): OAuthService {
+// The absolute Unix time (integer seconds) after which this authorization can
+// no longer complete: the earlier of the pending state's and the provider
+// Interaction's expiry. Django uses it as an upper bound for its own
+// transaction deadline.
+function deadline(pending: PendingRecord, interaction: Interaction): number {
+  const interactionExpiry =
+    typeof interaction.exp === "number" ? interaction.exp : Number.POSITIVE_INFINITY;
+  return Math.floor(Math.min(pending.expiresAt, interactionExpiry));
+}
+
+const PROVIDER_ERROR_EVENTS = [
+  "server_error",
+  "authorization.error",
+  "grant.error",
+  "registration_create.error",
+  "backchannel.error",
+] as const;
+
+// Provider events carry the request context and the error. Only the error's
+// class name, OAuth error code and short description are logged; never the
+// context, tokens, parameters or error_detail.
+function subscribeProviderEvents(provider: Provider, logger: Logger): void {
+  // The typed overloads cover each event separately; the payloads used here
+  // are checked at runtime instead.
+  const events = provider as unknown as EventEmitter;
+  for (const name of PROVIDER_ERROR_EVENTS) {
+    events.on(name, (ctx: unknown, error: unknown) => {
+      const err = (typeof error === "object" && error !== null ? error : {}) as Record<
+        string,
+        unknown
+      >;
+      const oidc = (ctx as { oidc?: { client?: { clientName?: unknown } } } | undefined)?.oidc;
+      logger.setClientName(oidc?.client?.clientName);
+      logger.write(name === "server_error" ? "error" : "warn", "oidc_error", {
+        oidc_event: name,
+        error_name: safeLabel(err.name, 60),
+        error: safeLabel(err.error, 60),
+        error_description: safeLabel(err.error_description, 200),
+        client_name: logger.clientName(),
+      });
+    });
+  }
+  events.on("refresh_token.consumed", () => {
+    logger.info("oidc_refresh_token_consumed");
+  });
+  events.on("grant.revoked", (_ctx: unknown, grantId: unknown) => {
+    logger.warn("oidc_grant_revoked", {
+      grant_ref: typeof grantId === "string" ? logger.ref(grantId) : undefined,
+    });
+  });
+}
+
+export function createOAuthService(
+  config: ServerConfig,
+  state: SqliteState,
+  logger: Logger
+): OAuthService {
   const cookieKeys = deriveCookieKeys(config.encryptionKey);
+  // Grant id to interaction start, kept only until the authorization code is
+  // exchanged, so oauth_grant_issued can report the whole flow duration.
+  const flowStarts = new Map<string, number>();
   const configuration: Configuration = {
     adapter: (name) => state.adapter(name),
     clients: [],
@@ -235,10 +398,20 @@ export function createOAuthService(config: ServerConfig, state: SqliteState): OA
       userinfo: { enabled: false },
     },
     interactions: {
-      async url(_ctx, interaction) {
+      async url(ctx, interaction) {
         validateAuthorizationInteraction(interaction, config.resource);
         const stateId = randomBytes(32).toString("base64url");
-        state.createPending(stateId, { interactionUid: interaction.uid }, TRANSIENT_TTL);
+        const pending = state.createPending(
+          stateId,
+          { interactionUid: interaction.uid },
+          TRANSIENT_TTL
+        );
+        logger.setClientName(ctx.oidc.client?.clientName);
+        logger.info("oauth_interaction_started", {
+          interaction_ref: logger.ref(interaction.uid),
+          client_name: logger.clientName(),
+          expires_at: deadline(pending, interaction),
+        });
         return `/oauth/callback?begin=${stateId}`;
       },
     },
@@ -296,6 +469,7 @@ export function createOAuthService(config: ServerConfig, state: SqliteState): OA
   provider.proxy = true;
   provider.use(async (ctx, next) => {
     await next();
+    logger.setClientName(ctx.oidc?.client?.clientName);
     const grant = ctx.oidc?.entities.Grant;
     if (
       ctx.oidc?.route === "token" &&
@@ -305,7 +479,25 @@ export function createOAuthService(config: ServerConfig, state: SqliteState): OA
     ) {
       await extendGrant(grant);
     }
+    if (
+      ctx.oidc?.route === "token" &&
+      ctx.oidc.params?.grant_type === "authorization_code" &&
+      ctx.status === 200
+    ) {
+      const grantId = grant?.jti;
+      const startedAt = grantId ? flowStarts.get(grantId) : undefined;
+      if (grantId) flowStarts.delete(grantId);
+      const body = ctx.body as Record<string, unknown> | undefined;
+      logger.info("oauth_grant_issued", {
+        grant_ref: logger.ref(grantId),
+        client_name: logger.clientName(),
+        refresh_token_issued: typeof body?.refresh_token === "string",
+        scope: typeof body?.scope === "string" ? safeLabel(body.scope, 100) : undefined,
+        flow_duration_s: startedAt === undefined ? undefined : config.now() - startedAt,
+      });
+    }
   });
+  subscribeProviderEvents(provider, logger);
   const callback = provider.callback();
 
   // Each refresh moves the grant, its stored credential and the client
@@ -335,19 +527,53 @@ export function createOAuthService(config: ServerConfig, state: SqliteState): OA
     callback(req, res);
   }
 
+  function rememberFlow(grantId: string, startedAt: number | undefined): void {
+    if (startedAt === undefined) return;
+    if (flowStarts.size >= MAX_TRACKED_FLOWS) {
+      const oldest = flowStarts.keys().next().value;
+      if (oldest !== undefined) flowStarts.delete(oldest);
+    }
+    flowStarts.set(grantId, startedAt);
+  }
+
+  async function loadInteraction(
+    req: IncomingMessage,
+    res: ServerResponse
+  ): Promise<Interaction | undefined> {
+    try {
+      return await provider.interactionDetails(req, res);
+    } catch (error) {
+      if (error instanceof errors.SessionNotFound) return undefined;
+      throw error;
+    }
+  }
+
   async function begin(req: IncomingMessage, res: ServerResponse, stateId: string): Promise<void> {
     const pending = state.findPending(stateId);
     if (!pending) {
-      res.statusCode = 400;
-      res.end("Authorization request expired");
+      logger.info("oauth_begin", { result: "expired", reason: "pending_missing" });
+      sendFlowPage(res, "expired", config.docsUrl);
       return;
     }
-    const interaction = await provider.interactionDetails(req, res);
-    if (pending.interactionUid !== interaction.uid) throw new Error("interaction binding mismatch");
-    validateAuthorizationInteraction(interaction, config.resource);
+    const interaction = await loadInteraction(req, res);
+    if (!interaction) {
+      logger.info("oauth_begin", { result: "expired", reason: "interaction_missing" });
+      sendFlowPage(res, "expired", config.docsUrl);
+      return;
+    }
+    if (pending.interactionUid !== interaction.uid) throw new FlowError("binding_mismatch");
+    try {
+      validateAuthorizationInteraction(interaction, config.resource);
+    } catch {
+      throw new FlowError("invalid_request");
+    }
     const clientId = stringParam(interaction, "client_id");
     const client = clientId ? await provider.Client.find(clientId) : undefined;
-    if (!client?.clientName || client.clientName.length > 200) throw new Error("client not found");
+    if (!client?.clientName || client.clientName.length > 200) {
+      throw new FlowError("client_not_found");
+    }
+    logger.setClientName(client.clientName);
+    const expiresAt = deadline(pending, interaction);
 
     const connect = new URL(config.connectUrl);
     connect.searchParams.set("redirect_uri", config.callbackUrl);
@@ -357,6 +583,13 @@ export function createOAuthService(config: ServerConfig, state: SqliteState): OA
     connect.searchParams.set("scope", stringParam(interaction, "scope")!);
     connect.searchParams.set("code_challenge", stringParam(interaction, "code_challenge")!);
     connect.searchParams.set("code_challenge_method", "S256");
+    connect.searchParams.set("expires_at", String(expiresAt));
+    logger.info("oauth_begin", {
+      result: "ok",
+      interaction_ref: logger.ref(interaction.uid),
+      client_name: logger.clientName(),
+      expires_at: expiresAt,
+    });
     res.statusCode = 302;
     res.setHeader("Location", connect.href);
     res.end();
@@ -370,27 +603,73 @@ export function createOAuthService(config: ServerConfig, state: SqliteState): OA
   ): Promise<void> {
     const pending = state.consumePending(stateId);
     if (!pending) {
-      res.statusCode = 400;
-      res.end("Authorization request expired");
+      logger.info("oauth_complete", { result: "expired", reason: "pending_missing" });
+      sendFlowPage(res, "expired", config.docsUrl);
       return;
     }
-    const interaction = await provider.interactionDetails(req, res);
-    if (pending.interactionUid !== interaction.uid) throw new Error("interaction binding mismatch");
-    if (url.searchParams.has("error")) {
-      await finish(req, res, interaction, {
-        error: url.searchParams.get("error") === "access_denied" ? "access_denied" : "server_error",
+    const elapsed = pending.createdAt === undefined ? undefined : config.now() - pending.createdAt;
+    const interaction = await loadInteraction(req, res);
+    if (!interaction) {
+      logger.info("oauth_complete", {
+        result: "expired",
+        reason: "interaction_missing",
+        duration_s: elapsed,
       });
+      sendFlowPage(res, "expired", config.docsUrl);
+      return;
+    }
+    if (pending.interactionUid !== interaction.uid) throw new FlowError("binding_mismatch");
+    const interactionRef = logger.ref(interaction.uid);
+    const clientId = stringParam(interaction, "client_id");
+    if (url.searchParams.has("error")) {
+      const denied = url.searchParams.get("error") === "access_denied";
+      const client = clientId ? await provider.Client.find(clientId) : undefined;
+      logger.setClientName(client?.clientName);
+      logger.info("oauth_complete", {
+        result: denied ? "denied" : "error",
+        ...(denied ? {} : { reason: "consent_error" }),
+        interaction_ref: interactionRef,
+        client_name: logger.clientName(),
+        duration_s: elapsed,
+      });
+      await finish(req, res, interaction, { error: denied ? "access_denied" : "server_error" });
       return;
     }
     const handoffCode = url.searchParams.get("code");
-    if (!handoffCode || handoffCode.length > 500) throw new Error("handoff code missing");
-    const clientId = stringParam(interaction, "client_id");
+    if (!handoffCode || handoffCode.length > 500) throw new FlowError("handoff_code_missing");
     const client = clientId ? await provider.Client.find(clientId) : undefined;
-    if (!client) throw new Error("client not found");
+    if (!client) throw new FlowError("client_not_found");
+    logger.setClientName(client.clientName);
+    const failed = (result: string, fields: Record<string, string | number | undefined> = {}) =>
+      logger.warn("oauth_complete", {
+        result,
+        ...fields,
+        interaction_ref: interactionRef,
+        client_name: logger.clientName(),
+        duration_s: elapsed,
+      });
+    let handoff: HandoffResult;
     try {
-      const handoff = await exchangeHandoff(handoffCode, config);
-      const binding = validateBinding(interaction, client, handoff);
-      const accountId = opaqueAccountId(handoff.connection.user_id, config.encryptionKey);
+      handoff = await exchangeHandoff(handoffCode, config, logger.requestId());
+    } catch (error) {
+      const reason = error instanceof HandoffExchangeError ? error.reason : "unexpected";
+      const status = error instanceof HandoffExchangeError ? error.status : undefined;
+      failed("handoff_exchange_failed", { reason, upstream_status: status });
+      await finish(req, res, interaction, { error: "server_error" });
+      return;
+    }
+    let binding: ReturnType<typeof validateBinding>;
+    try {
+      binding = validateBinding(interaction, client, handoff);
+    } catch {
+      failed("binding_failed");
+      await finish(req, res, interaction, { error: "server_error" });
+      return;
+    }
+    let grantId: string;
+    let accountId: string;
+    try {
+      accountId = opaqueAccountId(handoff.connection.user_id, config.encryptionKey);
       const grant = new provider.Grant({ accountId, clientId: client.clientId });
       grant.addResourceScope(
         config.resource,
@@ -404,15 +683,31 @@ export function createOAuthService(config: ServerConfig, state: SqliteState): OA
         grant.rejectOIDCScope("mcp:write");
       }
       grant.addOIDCScope(binding.scopes.join(" "));
-      const grantId = await grant.save();
+      grantId = await grant.save();
       const grantExpiresAt = config.now() + REFRESH_TOKEN_TTL;
       state.storeCredential(grantId, binding, grantExpiresAt);
       state.touchClient(client.clientId, grantExpiresAt);
+    } catch {
+      failed("error", { reason: "grant_storage" });
+      await finish(req, res, interaction, { error: "server_error" });
+      return;
+    }
+    rememberFlow(grantId, pending.createdAt);
+    logger.info("oauth_complete", {
+      result: "ok",
+      interaction_ref: interactionRef,
+      grant_ref: logger.ref(grantId),
+      client_name: logger.clientName(),
+      access: binding.access,
+      duration_s: elapsed,
+    });
+    try {
       await finish(req, res, interaction, {
         login: { accountId, remember: false },
         consent: { grantId },
       });
     } catch {
+      failed("error", { reason: "finish_failed" });
       await finish(req, res, interaction, { error: "server_error" });
     }
   }
@@ -421,23 +716,28 @@ export function createOAuthService(config: ServerConfig, state: SqliteState): OA
     provider,
     callback,
     async handleInteraction(req, res, url) {
+      const beginState = url.searchParams.get("begin");
+      const phase = beginState ? "oauth_begin" : "oauth_complete";
       try {
-        const beginState = url.searchParams.get("begin");
         if (beginState) {
           await begin(req, res, beginState);
           return;
         }
         const stateId = url.searchParams.get("state");
         if (!stateId) {
-          res.statusCode = 400;
-          res.end("Authorization request expired");
+          logger.info("oauth_complete", { result: "expired", reason: "missing_state" });
+          sendFlowPage(res, "expired", config.docsUrl);
           return;
         }
         await complete(req, res, url, stateId);
-      } catch {
+      } catch (error) {
+        logger.error(phase, {
+          result: "error",
+          reason: error instanceof FlowError ? error.reason : "unexpected",
+          client_name: logger.clientName(),
+        });
         if (!res.headersSent) {
-          res.statusCode = 500;
-          res.end("Authorization failed");
+          sendFlowPage(res, "failed", config.docsUrl);
         } else if (!res.writableEnded) {
           res.end();
         }

@@ -81,7 +81,8 @@ for `better-sqlite3` 12.4.1 it is
 - The external interaction bridge passes T-151's exact callback, client, state, scope, and PKCE
   parameters. `/oauth/callback` atomically consumes local state before exchanging the handoff.
   Django's returned client and effective scope must match the provider transaction. The
-  authenticated exchange uses `http://web:8000/mcp/handoff/exchange/`.
+  authenticated exchange uses `http://web:8000/mcp/handoff/exchange/`. The connect URL also carries
+  `expires_at`, described under "Authorization deadline" below.
 - The `hcm_` key is encrypted with AES-256-GCM before persistence. A labeled encryption subkey is
   derived from the root in `MCP_STATE_ENCRYPTION_KEY_FILE`; the root is never used directly as an
   AES key. The Django exchange bearer is read from `MCP_WORKER_SECRET_FILE`, while private pruning
@@ -90,8 +91,62 @@ for `better-sqlite3` 12.4.1 it is
   scopes, then decrypts the grant credential. Origin requests are made only through `packages/core`,
   whose header allowlist and output sanitizer are shared with stdio. An origin 401 replaces that
   call's response with OAuth 401 and removes the local grant artifacts.
-- The service has no request/error logs, telemetry, or duplicate rate limiter. It emits only a fixed
-  startup line and fixed fatal startup text.
+- The service has no telemetry or duplicate rate limiter. It writes structured JSON log lines to
+  stdout, described under "Logs" below.
+
+## Authorization deadline
+
+One authorization has 30 minutes (`TRANSIENT_TTL`, 1800 seconds) from the moment the client is sent
+to `/authorize` until Django redirects back to `/oauth/callback`. The pending bridge state, the
+oidc-provider Interaction and its cookies, and the provider Session all use this TTL. Django allows
+the same 30 minutes for its side, which covers waiting for an emailed approval code (15 minutes).
+`AUTHORIZATION_CODE_TTL` stays at 60 seconds and the access and refresh token TTLs are unchanged.
+
+The redirect to the Django connect page includes `expires_at`: the absolute Unix time in integer
+seconds at which this authorization stops being accepted. It is the earlier of the pending state's
+expiry and the provider Interaction's expiry, so in practice the start time plus 1800. The
+authorization can complete while the current time is before `expires_at`; at or after it the
+callback is rejected. Django uses the earlier of its own 30 minute limit and `expires_at` and never
+extends past it. The value only shortens Django's window, so it is not signed.
+
+When the pending state or the interaction is gone (expired, already used, or opened in another
+browser), `/oauth/callback` answers 400 with a small HTML page titled "This connection request has
+expired" that says the link expired or was already used. When the bridge fails unexpectedly it
+answers 500 with "Connection failed". Both pages tell the user to go back to their AI assistant and
+start connecting Watchgoose again, link to the MCP setup guide, and use `Cache-Control: no-store`
+with a restrictive Content Security Policy. They never redirect to the client: once the pending
+state is consumed or gone there is no trustworthy client and state to redirect with, and the handoff
+code is never exchanged.
+
+## Logs
+
+The service writes one JSON object per line on stdout; Docker keeps and rotates them. Every line has
+`ts` (ISO 8601), `level` (`info`, `warn` or `error`) and `event`. A line written while handling a
+request also has `request_id` when the request carried an `X-Request-ID` header matching
+`[A-Za-z0-9-]{1,64}` (Caddy adds one); any other value is ignored.
+
+Logs never contain access, refresh or authorization codes, handoff codes, state ids, client secrets,
+`Authorization` headers, cookies, email addresses, IP addresses, raw query strings, request or
+response bodies, decrypted credentials or account ids. Flows are linked with `interaction_ref` and
+`grant_ref`, the first 12 hex characters of an HMAC SHA256 of the interaction uid or grant id under
+a key derived from `MCP_STATE_ENCRYPTION_KEY_FILE`. Clients are named by `client_name`, the
+registered DCR name cut to 60 characters, or by `client_family`, the first User Agent token cut to
+40 characters. Email and IPv4 lookalikes in either are replaced with `[redacted]`.
+
+| Event                               | Fields                                                                                                                                                                                                                                                                                                                                                                             |
+| ----------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `server_started`                    | `version`, `transient_ttl_s`, `authorization_code_ttl_s`, `access_token_ttl_s`, `refresh_token_ttl_s`, `max_grant_lifetime_s`, and the hosts only of the issuer, callback, connect, handoff and API URLs                                                                                                                                                                           |
+| `server_stopping`, `startup_failed` | `startup_failed` adds `error_name`                                                                                                                                                                                                                                                                                                                                                 |
+| `http_request`                      | `method`, `route` (`mcp`, `oauth_authorize`, `oauth_token`, `oauth_register`, `oauth_discovery`, `oauth_callback`, `health` or `other`), `status`, `duration_ms`, `client_family`, `client_name` when known, `aborted` when the connection closed first                                                                                                                            |
+| `mcp_auth_rejected`                 | `reason` (`no_token`, `malformed`, `unknown_or_expired_token`, `no_credential`, `insufficient_scope`, or `origin_unauthorized` when Django answered 401 for the stored credential), `client_name` or `client_family`, `grant_ref` when known                                                                                                                                       |
+| `oauth_interaction_started`         | `interaction_ref`, `client_name`, `expires_at`                                                                                                                                                                                                                                                                                                                                     |
+| `oauth_begin`                       | `result` (`ok`, `expired` or `error`), `reason`, `interaction_ref`, `client_name`, `expires_at`                                                                                                                                                                                                                                                                                    |
+| `oauth_complete`                    | `result` (`ok`, `expired`, `denied`, `handoff_exchange_failed`, `binding_failed` or `error`), `reason` (for example `pending_missing`, `interaction_missing`, `missing_state`, `network`, `http_status`, `too_large`, `invalid_response`, `grant_storage`), `upstream_status`, `interaction_ref`, `grant_ref`, `client_name`, `access`, `duration_s` since the interaction started |
+| `oauth_grant_issued`                | `grant_ref`, `client_name`, `refresh_token_issued` (`true` or `false`), `scope`, `flow_duration_s` from interaction start to token issue when known                                                                                                                                                                                                                                |
+| `oidc_error`                        | `oidc_event` (`server_error`, `authorization.error`, `grant.error`, `registration_create.error` or `backchannel.error`), `error_name`, `error`, `error_description` cut to 200 characters, `client_name`                                                                                                                                                                           |
+| `oidc_refresh_token_consumed`       | none, one line per refresh                                                                                                                                                                                                                                                                                                                                                         |
+| `oidc_grant_revoked`                | `grant_ref`                                                                                                                                                                                                                                                                                                                                                                        |
+| `request_failed`                    | none, an unexpected error escaped a route                                                                                                                                                                                                                                                                                                                                          |
 
 ## SQLite operations
 

@@ -1,4 +1,4 @@
-FROM node:24-bookworm-slim@sha256:a9f5f7c91a432850b2a8a7797adf5eadb6c733ceed61167806cee7ea7fbc29df AS build
+FROM node:24-bookworm-slim@sha256:c86ecead9e55a5210ac1727de38a4ca840bf03dcaf34dc9749addbf383b1920c AS build
 
 WORKDIR /app
 COPY package.json package-lock.json ./
@@ -13,14 +13,18 @@ COPY packages/core packages/core
 COPY packages/server packages/server
 RUN npm run build:server && npm prune --omit=dev
 
-FROM node:24-bookworm-slim@sha256:a9f5f7c91a432850b2a8a7797adf5eadb6c733ceed61167806cee7ea7fbc29df AS runtime
+FROM node:24-bookworm-slim@sha256:c86ecead9e55a5210ac1727de38a4ca840bf03dcaf34dc9749addbf383b1920c AS runtime
 
 ENV MCP_HOST=0.0.0.0 \
     MCP_PORT=8080 \
     MCP_STATE_DATABASE=/data/oauth.sqlite \
     NODE_ENV=production
 WORKDIR /app
-RUN groupadd --gid 10001 watchgoose \
+# The server only needs node. npm and corepack carry their own dependency
+# trees and are the main source of scanner findings, so the runtime drops them.
+RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack \
+       /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack \
+    && groupadd --gid 10001 watchgoose \
     && useradd --uid 10001 --gid watchgoose --no-create-home --shell /usr/sbin/nologin watchgoose \
     && mkdir /data \
     && chmod 700 /data \

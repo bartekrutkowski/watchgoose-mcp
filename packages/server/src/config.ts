@@ -23,6 +23,7 @@ export interface ServerConfig {
   callbackUrl: string;
   docsUrl: string;
   openAiAppsChallengeToken?: string;
+  googleConnectedAppsToken?: string;
   workerSecret: string;
   maintenanceSecret: string;
   encryptionKey: Buffer;
@@ -60,6 +61,30 @@ function parsePort(value: string | undefined): number {
   return port;
 }
 
+// The value is served verbatim as Google's verification file, so a value
+// mangled on its way through docker/.env must stop the deploy. The error never
+// includes the value.
+export function parseGoogleConnectedAppsToken(value: string): string {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    parsed = undefined;
+  }
+  const tokens = (parsed as { verification_tokens?: unknown } | null | undefined)
+    ?.verification_tokens;
+  if (
+    !Array.isArray(tokens) ||
+    tokens.length === 0 ||
+    !tokens.every((token) => typeof token === "string" && token.length > 0)
+  ) {
+    throw new Error(
+      "GOOGLE_CONNECTED_APPS_TOKEN must be the JSON contents of google-connected-apps.json"
+    );
+  }
+  return value;
+}
+
 export function loadProductionConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
   const workerSecret = readSecret(env.MCP_WORKER_SECRET_FILE, "MCP_WORKER_SECRET_FILE")
     .toString("utf8")
@@ -93,6 +118,9 @@ export function loadProductionConfig(env: NodeJS.ProcessEnv = process.env): Serv
     docsUrl: DOCS_URL,
     ...(env.OPENAI_APPS_CHALLENGE_TOKEN
       ? { openAiAppsChallengeToken: env.OPENAI_APPS_CHALLENGE_TOKEN }
+      : {}),
+    ...(env.GOOGLE_CONNECTED_APPS_TOKEN
+      ? { googleConnectedAppsToken: parseGoogleConnectedAppsToken(env.GOOGLE_CONNECTED_APPS_TOKEN) }
       : {}),
     workerSecret,
     maintenanceSecret,

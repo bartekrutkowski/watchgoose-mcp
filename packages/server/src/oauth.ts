@@ -22,7 +22,7 @@ import {
 import { deriveCookieKeys, deriveSigningJwk, opaqueAccountId, signCookie } from "./crypto.js";
 import type { PendingRecord, SqliteState, StoredCredential } from "./database.js";
 import { safeLabel, type Logger } from "./logger.js";
-import { validRequestedScopes } from "./security.js";
+import { isGoogleClient, validRequestedScopes } from "./security.js";
 
 interface HandoffConnection {
   id: number;
@@ -422,7 +422,10 @@ export function createOAuthService(
       return client.grantTypeAllowed("refresh_token");
     },
     jwks: { keys: [deriveSigningJwk(config.encryptionKey)] },
-    rotateRefreshToken: true,
+    // Rotate on every refresh, except for Google Connected Apps (Gemini):
+    // Google requires the same refresh token back with its expiry extended,
+    // and relinks the user otherwise. Those tokens stay server-side at Google.
+    rotateRefreshToken: (ctx) => !isGoogleClient(ctx.oidc.client?.redirectUris),
     sectorIdentifierUriValidate(client) {
       if (client.sectorIdentifierUri) {
         throw new errors.InvalidClientMetadata("sector_identifier_uri is not supported");
@@ -478,6 +481,10 @@ export function createOAuthService(
       grant
     ) {
       await extendGrant(grant);
+      const refreshToken = ctx.oidc.entities.RefreshToken;
+      if (refreshToken && !ctx.oidc.entities.RotatedRefreshToken) {
+        await extendRefreshToken(refreshToken, grant);
+      }
     }
     if (
       ctx.oidc?.route === "token" &&
@@ -510,6 +517,18 @@ export function createOAuthService(
     await grant.save();
     state.extendCredential(grant.jti, expiresAt);
     state.touchClient(grant.clientId, expiresAt);
+  }
+
+  // A refresh token that was not rotated keeps its value, so move its own
+  // expiry with the grant's.
+  async function extendRefreshToken(
+    refreshToken: InstanceType<Provider["RefreshToken"]>,
+    grant: InstanceType<Provider["Grant"]>
+  ): Promise<void> {
+    const expiresAt = Math.min(config.now() + REFRESH_TOKEN_TTL, grant.iat + MAX_GRANT_LIFETIME);
+    if (expiresAt <= (refreshToken.exp ?? 0)) return;
+    refreshToken.exp = expiresAt;
+    await refreshToken.save();
   }
 
   async function finish(

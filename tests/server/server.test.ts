@@ -84,7 +84,8 @@ function makeOriginFetch(scope: "read" | "read+write" = "read"): typeof fetch {
 
 async function start(
   fetchFn: typeof fetch = makeOriginFetch(),
-  openAiAppsChallengeToken?: string
+  openAiAppsChallengeToken?: string,
+  googleConnectedAppsToken?: string
 ): Promise<RunningService> {
   const directory = mkdtempSync(join(tmpdir(), "watchgoose-mcp-server-"));
   const logs: string[] = [];
@@ -100,6 +101,7 @@ async function start(
     callbackUrl: `${ISSUER}/oauth/callback`,
     docsUrl: "https://watchgoose.com/docs/mcp/",
     ...(openAiAppsChallengeToken ? { openAiAppsChallengeToken } : {}),
+    ...(googleConnectedAppsToken ? { googleConnectedAppsToken } : {}),
     workerSecret: "w".repeat(32),
     maintenanceSecret: "m".repeat(32),
     encryptionKey: Buffer.alloc(32, 9),
@@ -220,17 +222,21 @@ interface PendingFlow {
 }
 
 // Registers a client and follows /authorize to the Django connect redirect.
+const LOOPBACK_REDIRECT = "http://127.0.0.1:49152/callback";
+const GOOGLE_REDIRECT = "https://oauth-redirect.googleusercontent.com/r/watchgoose-test";
+
 async function startAuthorization(
   service: RunningService,
   requestedScope = "mcp:read offline_access",
-  clientState = "client-state"
+  clientState = "client-state",
+  redirectUri = LOOPBACK_REDIRECT
 ): Promise<PendingFlow> {
   const register = await request(service, "/register", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       client_name: "Claude Test",
-      redirect_uris: ["http://127.0.0.1:49152/callback"],
+      redirect_uris: [redirectUri],
       token_endpoint_auth_method: "none",
       grant_types: ["authorization_code", "refresh_token"],
       response_types: ["code"],
@@ -245,7 +251,7 @@ async function startAuthorization(
   authorize.search = new URLSearchParams({
     response_type: "code",
     client_id: clientId,
-    redirect_uri: "http://127.0.0.1:49152/callback",
+    redirect_uri: redirectUri,
     scope: requestedScope,
     state: clientState,
     code_challenge: codeChallenge,
@@ -301,9 +307,10 @@ async function oauthFlow(
   effectiveScope: "read" | "read+write" = "read",
   handoffControl?: { started(): void; wait: Promise<void> },
   clientState = "client-state",
-  beforeCallback?: () => void
+  beforeCallback?: () => void,
+  redirectUri = LOOPBACK_REDIRECT
 ): Promise<OAuthResult> {
-  const pending = await startAuthorization(service, requestedScope, clientState);
+  const pending = await startAuthorization(service, requestedScope, clientState, redirectUri);
   const { clientId, verifier, state } = pending;
   let cookies = pending.cookies;
   beforeCallback?.();
@@ -339,7 +346,7 @@ async function oauthFlow(
     callbackLocation ?? "missing callback location"
   ).toBe(false);
   const clientRedirect = new URL(callbackLocation!);
-  expect(clientRedirect.origin + clientRedirect.pathname).toBe("http://127.0.0.1:49152/callback");
+  expect(clientRedirect.origin + clientRedirect.pathname).toBe(redirectUri);
   expect(clientRedirect.searchParams.get("state")).toBe(clientState);
   const authorizationCode = clientRedirect.searchParams.get("code")!;
 
@@ -350,7 +357,7 @@ async function oauthFlow(
       grant_type: "authorization_code",
       client_id: clientId,
       code: authorizationCode,
-      redirect_uri: "http://127.0.0.1:49152/callback",
+      redirect_uri: redirectUri,
       code_verifier: "wrong".repeat(13),
       resource: RESOURCE,
     }),
@@ -363,7 +370,7 @@ async function oauthFlow(
       grant_type: "authorization_code",
       client_id: clientId,
       code: authorizationCode,
-      redirect_uri: "http://127.0.0.1:49152/callback",
+      redirect_uri: redirectUri,
       code_verifier: verifier,
       resource: RESOURCE,
     }),
@@ -493,6 +500,137 @@ describe("route and metadata policy", () => {
 
     expect(challenge.status).toBe(404);
     expect(await challenge.text()).toBe("Not found");
+  });
+
+  it("serves the exact Google Connected Apps verification file", async () => {
+    // Shape of the google-connected-apps.json file the console downloads.
+    const token = JSON.stringify({ verification_tokens: [`google-test-${crypto.randomUUID()}`] });
+    const service = await start(makeOriginFetch(), undefined, token);
+    const file = await request(service, "/.well-known/google-connected-apps", {
+      redirect: "manual",
+    });
+
+    expect(file.status).toBe(200);
+    expect(file.headers.get("Content-Type")).toBe("application/json; charset=utf-8");
+    expect(await file.text()).toBe(token);
+    const head = await request(service, "/.well-known/google-connected-apps", { method: "HEAD" });
+    expect(head.status).toBe(200);
+    expect(await head.text()).toBe("");
+    const rejected = await request(service, "/.well-known/google-connected-apps", {
+      method: "POST",
+    });
+    expect(rejected.status).toBe(405);
+    expect(rejected.headers.get("Allow")).toBe("GET, HEAD");
+    expect((await request(service, "/.well-known/openai-apps-challenge")).status).toBe(404);
+  });
+
+  it("hides the Google Connected Apps verification file when it is not configured", async () => {
+    const service = await start();
+    const file = await request(service, "/.well-known/google-connected-apps");
+
+    expect(file.status).toBe(404);
+    expect(await file.text()).toBe("Not found");
+  });
+
+  it("registers a Google account-linking redirect URI", async () => {
+    const service = await start();
+    const redirect = "https://oauth-redirect.googleusercontent.com/r/watchgoose-test";
+    const response = await request(service, "/register", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        redirect_uris: [redirect],
+        token_endpoint_auth_method: "none",
+        grant_types: ["authorization_code", "refresh_token"],
+        response_types: ["code"],
+        scope: "mcp:read offline_access",
+        client_name: "Google",
+      }),
+    });
+
+    expect(response.status, await response.clone().text()).toBe(201);
+    expect(await response.json()).toMatchObject({ redirect_uris: [redirect] });
+  });
+
+  it("registers the request shapes Gemini may send", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const service = await start();
+    const register = (body: Record<string, unknown>) =>
+      request(service, "/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+    const google = ["https://oauth-redirect-sandbox.googleusercontent.com/a/watchgoose-test"];
+
+    const unnamed = await register({ redirect_uris: google });
+    expect(unnamed.status, await unnamed.clone().text()).toBe(201);
+    expect(await unnamed.json()).toMatchObject({
+      client_name: "Gemini",
+      token_endpoint_auth_method: "none",
+    });
+
+    const confidential = await register({
+      redirect_uris: [GOOGLE_REDIRECT],
+      client_name: "Google",
+      token_endpoint_auth_method: "client_secret_basic",
+    });
+    expect(confidential.status, await confidential.clone().text()).toBe(201);
+    const confidentialBody = (await confidential.json()) as Record<string, unknown>;
+    expect(confidentialBody.token_endpoint_auth_method).toBe("none");
+    expect(confidentialBody).not.toHaveProperty("client_secret");
+
+    const oidc = await register({
+      redirect_uris: [GOOGLE_REDIRECT],
+      client_name: "Google",
+      scope: "openid profile email mcp:read offline_access",
+    });
+    expect(oidc.status, await oidc.clone().text()).toBe(201);
+    expect(await oidc.json()).toMatchObject({ scope: "mcp:read offline_access" });
+
+    // Without the refresh_token grant the link would end after one hour.
+    const codeOnly = await register({
+      redirect_uris: [GOOGLE_REDIRECT],
+      grant_types: ["authorization_code"],
+    });
+    expect(codeOnly.status, await codeOnly.clone().text()).toBe(201);
+    expect(await codeOnly.json()).toMatchObject({
+      grant_types: ["authorization_code", "refresh_token"],
+    });
+
+    // The provider reads the normalised body as a stream, so it never falls
+    // back to a pre-parsed body (which it reports with a plain-text warning).
+    expect(warn.mock.calls.flat().join(" ")).not.toContain("oidc-provider WARNING");
+  });
+
+  it("keeps the strict registration policy for other clients", async () => {
+    const service = await start();
+    const register = (body: Record<string, unknown>) =>
+      request(service, "/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+    const other = "https://client.example/callback";
+    expect((await register({ redirect_uris: [other] })).status).toBe(400);
+    expect(
+      (
+        await register({
+          redirect_uris: [other],
+          client_name: "Other",
+          token_endpoint_auth_method: "client_secret_basic",
+        })
+      ).status
+    ).toBe(400);
+    // Mixing a Google redirect with another one gets no Google defaults.
+    expect((await register({ redirect_uris: [GOOGLE_REDIRECT, other] })).status).toBe(400);
+    expect(
+      (
+        await register({
+          redirect_uris: ["https://oauth-redirect.googleusercontent.com.evil.example/r/x"],
+        })
+      ).status
+    ).toBe(400);
   });
 
   it("registers hosted Claude with the advertised scopes", async () => {
@@ -852,6 +990,197 @@ describe("OAuth and MCP integration", () => {
     ).toEqual({ count: 0 });
   });
 
+  it("keeps a Google refresh token and extends it on each refresh", async () => {
+    vi.useFakeTimers({ toFake: ["Date"], now: new Date("2026-01-01T00:00:00Z") });
+    const service = await start();
+    const flow = await oauthFlow(
+      service,
+      "mcp:read offline_access",
+      "read",
+      undefined,
+      "client-state",
+      undefined,
+      GOOGLE_REDIRECT
+    );
+    keepRegistration(service);
+    const signedInAt = Math.floor(Date.now() / 1000);
+
+    // Google requires the same refresh token back, also after the reuse
+    // interval that would revoke a rotated token.
+    vi.setSystemTime((signedInAt + 10 * 24 * 60 * 60) * 1000);
+    const first = await refreshWith(service, flow.clientId, flow.refreshToken!);
+    expect(first.status, await first.clone().text()).toBe(200);
+    expect(((await first.json()) as { refresh_token: string }).refresh_token).toBe(
+      flow.refreshToken
+    );
+
+    // Its expiry moved to refresh + 30 days, past sign-in + 30 days.
+    vi.setSystemTime((signedInAt + 10 * 24 * 60 * 60 + REFRESH_TOKEN_TTL - 1) * 1000);
+    const second = await refreshWith(service, flow.clientId, flow.refreshToken!);
+    expect(second.status, await second.clone().text()).toBe(200);
+    const body = (await second.json()) as { refresh_token: string; access_token: string };
+    expect(body.refresh_token).toBe(flow.refreshToken);
+    expect((await mcpTools(service, body.access_token)).status).toBe(200);
+
+    // Idle for 30 days still ends the connection.
+    vi.setSystemTime((signedInAt + 10 * 24 * 60 * 60 + 2 * REFRESH_TOKEN_TTL) * 1000);
+    const idle = await refreshWith(service, flow.clientId, flow.refreshToken!);
+    expect(idle.status).toBe(400);
+    expect(await idle.json()).toMatchObject({ error: "invalid_grant" });
+  });
+
+  it("ends a Google connection at the year cap with the same refresh token throughout", async () => {
+    vi.useFakeTimers({ toFake: ["Date"], now: new Date("2026-01-01T00:00:00Z") });
+    const service = await start();
+    const flow = await oauthFlow(
+      service,
+      "mcp:read offline_access",
+      "read",
+      undefined,
+      "client-state",
+      undefined,
+      GOOGLE_REDIRECT
+    );
+    keepRegistration(service);
+    const signedInAt = Math.floor(Date.now() / 1000);
+    const cap = signedInAt + MAX_GRANT_LIFETIME;
+    const refreshTokenExpiry = () =>
+      service.state.db
+        .prepare("SELECT MAX(expires_at) AS expires FROM refresh_grants WHERE model='RefreshToken'")
+        .get() as { expires: number };
+
+    const step = REFRESH_TOKEN_TTL - 24 * 60 * 60;
+    for (let at = signedInAt + step; at < cap - 30 * 60; at += step) {
+      vi.setSystemTime(at * 1000);
+      const response = await refreshWith(service, flow.clientId, flow.refreshToken!);
+      expect(response.status, `refresh after ${(at - signedInAt) / 86400} days`).toBe(200);
+      expect(((await response.json()) as { refresh_token: string }).refresh_token).toBe(
+        flow.refreshToken
+      );
+      expect(refreshTokenExpiry()).toEqual({ expires: Math.min(at + REFRESH_TOKEN_TTL, cap) });
+    }
+
+    // The kept token's expiry never passes the cap, and it stops working there.
+    vi.setSystemTime((cap - 30 * 60) * 1000);
+    const last = await refreshWith(service, flow.clientId, flow.refreshToken!);
+    expect(last.status).toBe(200);
+    expect(refreshTokenExpiry()).toEqual({ expires: cap });
+    vi.setSystemTime(cap * 1000);
+    const capped = await refreshWith(service, flow.clientId, flow.refreshToken!);
+    expect(capped.status).toBe(400);
+    expect(await capped.json()).toMatchObject({ error: "invalid_grant" });
+  });
+
+  it("still rotates refresh tokens for clients outside Google's redirect hosts", async () => {
+    const service = await start();
+    const flow = await oauthFlow(service);
+    const refreshed = await refreshWith(service, flow.clientId, flow.refreshToken!);
+    expect(refreshed.status).toBe(200);
+    expect(((await refreshed.json()) as { refresh_token: string }).refresh_token).not.toBe(
+      flow.refreshToken
+    );
+  });
+
+  it("fills a missing resource and scope on authorization", async () => {
+    const service = await start();
+    const register = await request(service, "/register", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ client_name: "Gemini", redirect_uris: [GOOGLE_REDIRECT] }),
+    });
+    expect(register.status, await register.clone().text()).toBe(201);
+    const clientId = ((await register.json()) as { client_id: string }).client_id;
+    const challenge = await sha256Challenge("v".repeat(64));
+    for (const [extra, expectedScope] of [
+      [{ scope: "mcp:read offline_access" }, "mcp:read offline_access"],
+      [{}, "mcp:read mcp:write offline_access"],
+      [{ scope: "openid profile email" }, "mcp:read mcp:write offline_access"],
+      [{ scope: "openid mcp:write" }, "mcp:read mcp:write"],
+    ] as const) {
+      const authorize = new URL("/authorize", service.base);
+      authorize.search = new URLSearchParams({
+        response_type: "code",
+        client_id: clientId,
+        redirect_uri: GOOGLE_REDIRECT,
+        state: "client-state",
+        code_challenge: challenge,
+        code_challenge_method: "S256",
+        ...extra,
+      }).toString();
+      const first = await request(service, `${authorize.pathname}${authorize.search}`);
+      expect(first.status, JSON.stringify(extra)).toBe(303);
+      const internal = new URL(first.headers.get("Location")!, ISSUER);
+      expect(internal.pathname, JSON.stringify(extra)).toBe("/oauth/callback");
+      const django = await request(
+        service,
+        `${internal.pathname}${internal.search}`,
+        {},
+        cookieValues(first)
+      );
+      const consent = new URL(django.headers.get("Location")!);
+      expect(consent.searchParams.get("scope"), JSON.stringify(extra)).toBe(expectedScope);
+    }
+  });
+
+  it("keeps authorization defaults within the client's registered scope", async () => {
+    const service = await start();
+    const challenge = await sha256Challenge("v".repeat(64));
+    async function consentScope(registered: string, extra: Record<string, string>) {
+      const register = await request(service, "/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          client_name: "Scoped",
+          redirect_uris: [GOOGLE_REDIRECT],
+          scope: registered,
+        }),
+      });
+      expect(register.status, await register.clone().text()).toBe(201);
+      const client = (await register.json()) as { client_id: string; scope: string };
+      const authorize = new URL("/authorize", service.base);
+      authorize.search = new URLSearchParams({
+        response_type: "code",
+        client_id: client.client_id,
+        redirect_uri: GOOGLE_REDIRECT,
+        state: "client-state",
+        code_challenge: challenge,
+        code_challenge_method: "S256",
+        ...extra,
+      }).toString();
+      const first = await request(service, `${authorize.pathname}${authorize.search}`);
+      const label = `${registered} ${JSON.stringify(extra)}: ${first.headers.get("Location")}`;
+      expect(first.status, label).toBe(303);
+      const internal = new URL(first.headers.get("Location")!, ISSUER);
+      expect(internal.pathname, label).toBe("/oauth/callback");
+      const django = await request(
+        service,
+        `${internal.pathname}${internal.search}`,
+        {},
+        cookieValues(first)
+      );
+      return {
+        registered: client.scope,
+        consent: new URL(django.headers.get("Location")!).searchParams.get("scope"),
+      };
+    }
+
+    // Read-only registration, no scope or only OIDC scopes requested.
+    expect(await consentScope("mcp:read offline_access", {})).toEqual({
+      registered: "mcp:read offline_access",
+      consent: "mcp:read offline_access",
+    });
+    expect(await consentScope("mcp:read", { scope: "openid profile email" })).toEqual({
+      registered: "mcp:read",
+      consent: "mcp:read",
+    });
+    // A write-only registration is stored with read implied, so a write
+    // request works.
+    expect(await consentScope("mcp:write", { scope: "mcp:write" })).toEqual({
+      registered: "mcp:read mcp:write",
+      consent: "mcp:read mcp:write",
+    });
+  });
+
   it("rejects ambiguous token resource indicators", async () => {
     const service = await start();
     const flow = await oauthFlow(service);
@@ -995,11 +1324,24 @@ describe("OAuth and MCP integration", () => {
       code_challenge_method: "S256",
       resource: RESOURCE,
     }).toString();
+    // A missing resource defaults to the only protected resource.
     const withoutResource = new URL(authorize);
     withoutResource.searchParams.delete("resource");
-    const rejected = await request(
+    const defaulted = await request(
       service,
       `${withoutResource.pathname}${withoutResource.search}`,
+      {},
+      flow.cookies
+    );
+    expect(defaulted.status).toBe(303);
+    expect(new URL(defaulted.headers.get("Location")!, ISSUER).pathname).toBe("/oauth/callback");
+
+    // A resource that isn't ours is still rejected.
+    const wrongResource = new URL(authorize);
+    wrongResource.searchParams.set("resource", "https://other.example/mcp");
+    const rejected = await request(
+      service,
+      `${wrongResource.pathname}${wrongResource.search}`,
       {},
       flow.cookies
     );

@@ -120,5 +120,11 @@ The owner performs every external state change:
 6. Verify `npm view watchgoose-mcp version` and start a fresh `npx -y watchgoose-mcp` connection.
 7. Revoke both test keys and delete the dedicated test project.
 
+For each owner-authorized **hosted MCP release**, also **bump `MCP_SERVER_VERSION` in the web env**
+to the actual hosted release version. Apply that setting through the separately authorized web
+rollout, then check that `https://watchgoose.com/mcp-server-card.json` advertises the matching
+`version`. Publishing npm alone does not establish which hosted version is deployed. Blank or unset
+values fall back to the web application's default and do not automatically track releases.
+
 The self-hosted service deployment and public `/docs/mcp/` page are separate T-152/T-153 owner work
 and are not part of this stdio checklist. See `docs/self-hosted-server.md` for the server boundary.

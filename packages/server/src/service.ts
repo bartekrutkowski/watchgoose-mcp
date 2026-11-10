@@ -1,6 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
+import { Readable } from "node:stream";
 import { WATCHGOOSE_RELEASE_VERSION } from "@watchgoose/mcp-core";
 import type { ServerConfig } from "./config.js";
 import {
@@ -17,6 +18,7 @@ import { SqliteState } from "./database.js";
 import { clientFamily, Logger, routeCategory } from "./logger.js";
 import { handleMcp } from "./mcp.js";
 import { createOAuthService } from "./oauth.js";
+import { normaliseAuthorizationParams, normaliseRegistration } from "./security.js";
 
 const METHOD_POLICY: Readonly<Record<string, readonly string[]>> = {
   "/": ["GET"],
@@ -30,7 +32,47 @@ const METHOD_POLICY: Readonly<Record<string, readonly string[]>> = {
   "/.well-known/oauth-authorization-server": ["GET"],
   "/.well-known/oauth-protected-resource/mcp": ["GET"],
   "/.well-known/openai-apps-challenge": ["GET", "HEAD"],
+  "/.well-known/google-connected-apps": ["GET", "HEAD"],
 };
+
+// Reads a registration body (size already checked) and returns a request
+// that replays a normalised copy to the provider. The provider reads its
+// body from the request stream, so it gets a fresh stream carrying the same
+// method, URL, headers and socket. Bodies that aren't a JSON object pass
+// through unchanged for the provider to reject. Returns undefined when the
+// body doesn't match its length.
+async function normaliseRegistrationRequest(
+  req: IncomingMessage,
+  length: number
+): Promise<IncomingMessage | undefined> {
+  const chunks: Buffer[] = [];
+  let received = 0;
+  for await (const chunk of req) {
+    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as string);
+    received += buffer.length;
+    if (received > length) return undefined;
+    chunks.push(buffer);
+  }
+  if (received !== length) return undefined;
+  let body = Buffer.concat(chunks);
+  try {
+    const parsed: unknown = JSON.parse(body.toString("utf8"));
+    if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
+      body = Buffer.from(JSON.stringify(normaliseRegistration(parsed as Record<string, unknown>)));
+    }
+  } catch {
+    // Leave malformed JSON to the provider's own error response.
+  }
+  return Object.assign(Readable.from([body], { objectMode: false }), {
+    method: req.method,
+    url: req.url,
+    headers: { ...req.headers, "content-length": String(body.length) },
+    httpVersion: req.httpVersion,
+    httpVersionMajor: req.httpVersionMajor,
+    httpVersionMinor: req.httpVersionMinor,
+    socket: req.socket,
+  }) as unknown as IncomingMessage;
+}
 
 function sendWebResponse(res: ServerResponse, response: Response): void {
   res.statusCode = response.status;
@@ -213,6 +255,16 @@ export function createWatchgooseService(config: ServerConfig): WatchgooseService
       fixedResponse(res, 200, req.method === "HEAD" ? "" : config.openAiAppsChallengeToken);
       return;
     }
+    if (url.pathname === "/.well-known/google-connected-apps") {
+      if (config.googleConnectedAppsToken === undefined) {
+        fixedResponse(res, 404, "Not found");
+        return;
+      }
+      res.statusCode = 200;
+      res.setHeader("Content-Type", "application/json; charset=utf-8");
+      res.end(req.method === "HEAD" ? "" : config.googleConnectedAppsToken);
+      return;
+    }
     if (url.pathname === "/.well-known/oauth-protected-resource/mcp") {
       res.setHeader("Content-Type", "application/json");
       res.end(
@@ -278,8 +330,22 @@ export function createWatchgooseService(config: ServerConfig): WatchgooseService
         fixedResponse(res, 413, "Client metadata too large");
         return;
       }
+      const normalised = await normaliseRegistrationRequest(req, length);
+      if (!normalised) {
+        fixedResponse(res, 400, "Invalid Content-Length");
+        return;
+      }
+      oauth.callback(normalised, res);
+      return;
     }
     if (url.pathname === "/authorize") {
+      // Defaults must stay within the client's registered scope, if any.
+      const clientId = url.searchParams.get("client_id");
+      const client =
+        clientId && clientId.length <= 200
+          ? await oauth.provider.Client.find(clientId).catch(() => undefined)
+          : undefined;
+      normaliseAuthorizationParams(url.searchParams, config.resource, client?.scope);
       const prompts = new Set(url.searchParams.get("prompt")?.split(" ").filter(Boolean));
       prompts.add("consent");
       url.searchParams.set("prompt", [...prompts].join(" "));

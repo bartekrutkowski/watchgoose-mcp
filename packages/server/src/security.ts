@@ -16,9 +16,16 @@ export function isAllowedRedirectUri(value: unknown): value is string {
   return url.protocol === "http:" && LOOPBACK_HOSTS.has(url.hostname);
 }
 
+export class ClientMetadataPolicyError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ClientMetadataPolicyError";
+  }
+}
+
 export function validateClientMetadata(metadata: ClientMetadata): void {
   if (Buffer.byteLength(JSON.stringify(metadata)) > MAX_DCR_BYTES) {
-    throw new Error("client metadata is too large");
+    throw new ClientMetadataPolicyError("client metadata is too large");
   }
   const name = metadata.client_name;
   if (
@@ -27,7 +34,7 @@ export function validateClientMetadata(metadata: ClientMetadata): void {
     name !== name.trim() ||
     name.length > 200
   ) {
-    throw new Error("client_name must contain 1 to 200 characters");
+    throw new ClientMetadataPolicyError("client_name must contain 1 to 200 characters");
   }
   const redirects = metadata.redirect_uris;
   if (
@@ -37,10 +44,14 @@ export function validateClientMetadata(metadata: ClientMetadata): void {
     !redirects.every(isAllowedRedirectUri) ||
     redirects.reduce((total, uri) => total + uri.length, 0) > 8192
   ) {
-    throw new Error("redirect_uris do not satisfy the Watchgoose redirect policy");
+    throw new ClientMetadataPolicyError(
+      "redirect_uris do not satisfy the Watchgoose redirect policy"
+    );
   }
   if (metadata.token_endpoint_auth_method !== "none") {
-    throw new Error("only public clients are supported");
+    throw new ClientMetadataPolicyError(
+      "token_endpoint_auth_method must be none (only public clients are supported)"
+    );
   }
   const grants = metadata.grant_types;
   if (
@@ -48,14 +59,16 @@ export function validateClientMetadata(metadata: ClientMetadata): void {
     !grants.includes("authorization_code") ||
     grants.some((grant) => grant !== "authorization_code" && grant !== "refresh_token")
   ) {
-    throw new Error("only authorization_code and refresh_token grants are supported");
+    throw new ClientMetadataPolicyError(
+      "grant_types supports only authorization_code and refresh_token"
+    );
   }
   if (
     !Array.isArray(metadata.response_types) ||
     metadata.response_types.length !== 1 ||
     metadata.response_types[0] !== "code"
   ) {
-    throw new Error("response_types must contain only code");
+    throw new ClientMetadataPolicyError("response_types must contain only code");
   }
   if (metadata.scope !== undefined) {
     const scopes = metadata.scope.split(" ").filter(Boolean);
@@ -63,7 +76,7 @@ export function validateClientMetadata(metadata: ClientMetadata): void {
       new Set(scopes).size !== scopes.length ||
       scopes.some((scope) => !ALLOWED_SCOPES.includes(scope as never))
     ) {
-      throw new Error("client scope contains an unsupported value");
+      throw new ClientMetadataPolicyError("client scope contains an unsupported value");
     }
   }
 }
@@ -127,6 +140,12 @@ export function normaliseRegistration(body: Record<string, unknown>): Record<str
     const scopes = withReadImplied(knownScopes(out.scope));
     if (scopes.length > 0) out.scope = scopes.join(" ");
     else delete out.scope;
+  }
+  if (Array.isArray(out.grant_types) && out.grant_types.includes("authorization_code")) {
+    const supported = out.grant_types.filter(
+      (grant): grant is string => grant === "authorization_code" || grant === "refresh_token"
+    );
+    out.grant_types = [...new Set(supported)];
   }
   if (isGoogleClient(out.redirect_uris)) {
     if (typeof out.client_name !== "string" || out.client_name.trim().length === 0) {

@@ -102,6 +102,22 @@ integration("Watchgoose production API", () => {
 
   it("exercises all tools and strips private ping data", async () => {
     const { client } = await harness(RW_KEY!, "read-write", true);
+    const listed = await client.listTools();
+    expect(listed.tools.map((tool) => tool.name)).toEqual([
+      "list_checks",
+      "get_check",
+      "list_flips",
+      "get_health_summary",
+      "get_setup_snippet",
+      "list_pings",
+      "list_channels",
+      "create_check",
+      "upsert_check",
+      "update_check",
+      "pause_check",
+      "resume_check",
+      "delete_check",
+    ]);
     const suffix = Date.now().toString(36);
     const create = await client.callTool({
       name: "create_check",
@@ -167,6 +183,8 @@ integration("Watchgoose production API", () => {
       "list_checks",
       "get_check",
       "list_flips",
+      "get_health_summary",
+      "get_setup_snippet",
     ]);
     const checks = payload(await client.callTool({ name: "list_checks", arguments: {} })) as {
       checks: Array<{ unique_key: string }>;

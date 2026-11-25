@@ -470,7 +470,7 @@ describe("canonical skills and platform adapters", () => {
       .array(z.object({ row: z.string(), source: z.string(), input: z.unknown() }).strict())
       .parse(JSON.parse(blocks[0]![1]!));
     expect(rows).toHaveLength(2);
-    const plainCreate = createCheckInputSchema.omit({ unique: true }).strict();
+    const plainCreate = createCheckInputSchema.strict();
     for (const row of rows) expect(plainCreate.safeParse(row.input).success).toBe(true);
   });
 

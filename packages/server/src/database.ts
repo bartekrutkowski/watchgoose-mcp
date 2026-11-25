@@ -10,7 +10,7 @@ import {
   REFRESH_TOKEN_REUSE_INTERVAL,
 } from "./constants.js";
 import { decrypt, deriveKey, encrypt, storageKey } from "./crypto.js";
-import { validateClientMetadata } from "./security.js";
+import { ClientMetadataPolicyError, validateClientMetadata } from "./security.js";
 
 type Table = "dcr_clients" | "refresh_grants" | "authorization_codes";
 
@@ -144,8 +144,12 @@ export class SqliteState {
     if (model === "Client") {
       try {
         validateClientMetadata(payload as ClientMetadata);
-      } catch {
-        throw new errors.InvalidClientMetadata("client metadata does not satisfy server policy");
+      } catch (error) {
+        const message =
+          error instanceof ClientMetadataPolicyError
+            ? error.message
+            : "client metadata does not satisfy server policy";
+        throw new errors.InvalidClientMetadata(message);
       }
     }
     const expiresAt =

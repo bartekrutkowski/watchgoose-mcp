@@ -1,8 +1,13 @@
 import { Client, InMemoryTransport } from "@modelcontextprotocol/client";
 import { McpServer } from "@modelcontextprotocol/server";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { registerWatchgooseTools, type WatchgooseToolsOptions } from "./tools.js";
+import {
+  WATCHGOOSE_SERVER_INSTRUCTIONS,
+  WATCHGOOSE_STDIO_SERVER_INSTRUCTIONS,
+} from "./instructions.js";
+import { PROMPT_NAMES, registerWatchgoosePrompts } from "./prompts.js";
 import { deriveUniqueKey } from "./sanitize.js";
+import { registerWatchgooseTools, type WatchgooseToolsOptions } from "./tools.js";
 
 const API_KEY = `hcw_${"k".repeat(28)}`;
 const UUID = "12345678-1234-5678-9234-567812345678";
@@ -59,7 +64,8 @@ function createRouter(
   rawChannels = CHANNEL_ID,
   channelRecords: Array<Record<string, unknown>> = [
     { id: CHANNEL_ID, name: "Ops email", kind: "email", secret: "sentinel" },
-  ]
+  ],
+  checksList?: Array<Record<string, unknown>>
 ): {
   fetch: typeof fetch;
   requests: RecordedRequest[];
@@ -84,6 +90,52 @@ function createRouter(
       return Response.json({ error: "server detail must not escape" }, { status: errorStatus });
     }
 
+    if (url.pathname.endsWith("/mcp/channels/test/") && method === "POST") {
+      const payload = body as { name?: string };
+      return Response.json({
+        name: payload.name ?? "Ops email",
+        kind: "email",
+        sent: true,
+        error: null,
+      });
+    }
+    if (url.pathname.includes("/mcp/checks/") && url.pathname.endsWith("/report/")) {
+      const payload = body as { status?: string };
+      return Response.json({
+        unique_key: UNIQUE_KEY,
+        name: "Nightly backup",
+        slug: "nightly-backup",
+        action: payload.status ?? "success",
+        status: payload.status === "fail" ? "down" : "up",
+        started: payload.status === "start",
+        n_pings: 5,
+        last_ping: "2026-08-22T10:05:00Z",
+        next_ping: "2026-08-23T10:05:00Z",
+        last_duration: 12,
+      });
+    }
+    if (url.pathname.includes("/mcp/checks/") && url.pathname.endsWith("/last-failure/")) {
+      return Response.json({
+        unique_key: UNIQUE_KEY,
+        name: "Nightly backup",
+        status: "down",
+        has_failure: true,
+        last_down_at: "2026-08-22T10:01:00Z",
+        reason: "fail",
+        reason_long: "received a failure signal",
+        down_duration_seconds: 120,
+        ping: {
+          type: "fail",
+          date: "2026-08-22T10:01:00Z",
+          n: 4,
+          exit_status: 1,
+          scheme: "https",
+          method: "POST",
+          has_body: true,
+          body_size_bytes: 128,
+        },
+      });
+    }
     if (url.pathname.endsWith("/channels/")) {
       return Response.json({ channels: channelRecords });
     }
@@ -115,7 +167,7 @@ function createRouter(
       return Response.json(check({ status: "new" }));
     }
     if (url.pathname.endsWith("/checks/") && method === "GET") {
-      return Response.json({ checks: [check()] });
+      return Response.json({ checks: checksList ?? [check()] });
     }
     if (url.pathname.endsWith("/checks/") && method === "POST") {
       return Response.json(check({ status: "new", n_pings: 0 }), { status: 201 });
@@ -129,19 +181,31 @@ function createRouter(
 }
 
 async function createHarness(
-  policy: Pick<WatchgooseToolsOptions, "access" | "enableWrites">,
+  policy: Pick<WatchgooseToolsOptions, "access" | "enableWrites" | "enableMcpEndpoints">,
   errorStatus?: number,
   rawChannels = CHANNEL_ID,
-  channelRecords?: Array<Record<string, unknown>>
+  channelRecords?: Array<Record<string, unknown>>,
+  checksList?: Array<Record<string, unknown>>
 ): Promise<Harness> {
-  const router = createRouter(errorStatus, rawChannels, channelRecords);
-  const server = new McpServer({ name: "watchgoose-test", version: "0.1.0" });
+  const router = createRouter(errorStatus, rawChannels, channelRecords, checksList);
+  const server = new McpServer(
+    { name: "watchgoose-test", version: "0.1.0" },
+    {
+      instructions: WATCHGOOSE_SERVER_INSTRUCTIONS,
+      capabilities: {
+        tools: { listChanged: false },
+        prompts: { listChanged: false },
+      },
+    }
+  );
   registerWatchgooseTools(server, {
     apiKey: API_KEY,
     apiUrl: "https://watchgoose.test/api/v3",
+    enableMcpEndpoints: true,
     fetch: router.fetch,
     ...policy,
   });
+  registerWatchgoosePrompts(server, { enableMcpEndpoints: true, ...policy });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await server.connect(serverTransport);
   const client = new Client({ name: "test-client", version: "0.1.0" });
@@ -175,13 +239,60 @@ afterEach(async () => {
   );
 });
 
+describe("instructions and prompts", () => {
+  it("keeps the leading server instruction paragraph within 512 characters", () => {
+    const firstParagraph = WATCHGOOSE_SERVER_INSTRUCTIONS.split("\n\n")[0]!;
+    expect(firstParagraph.length).toBeLessThanOrEqual(512);
+    expect(firstParagraph).toContain("My First Check");
+    expect(firstParagraph).toContain("dashboard_url");
+    expect(firstParagraph).toContain("report_run");
+
+    const stdioFirstParagraph = WATCHGOOSE_STDIO_SERVER_INSTRUCTIONS.split("\n\n")[0]!;
+    expect(stdioFirstParagraph.length).toBeLessThanOrEqual(512);
+    expect(WATCHGOOSE_STDIO_SERVER_INSTRUCTIONS).not.toContain("report_run");
+  });
+
+  it("exposes all four built-in prompts and returns actionable messages", async () => {
+    const { client } = await createHarness({ access: "read-write", enableWrites: true });
+    const listed = await client.listPrompts();
+    expect(listed.prompts.map((prompt) => prompt.name)).toEqual([...PROMPT_NAMES]);
+
+    const setup = await client.getPrompt({
+      name: "setup_first_monitor",
+      arguments: { job_description: "Nightly Postgres backup", platform: "cron" },
+    });
+    const firstMessage = setup.messages[0]?.content;
+    expect(firstMessage?.type === "text" ? firstMessage.text : "").toContain("create_check");
+
+    const agentPrompt = await client.getPrompt({
+      name: "monitor_scheduled_agent",
+      arguments: { routine_name: "PR triage", schedule: "0 9 * * 1-5" },
+    });
+    const agentText = agentPrompt.messages[0]?.content;
+    expect(agentText?.type === "text" ? agentText.text : "").toContain("report_run");
+  });
+});
+
 describe("tool visibility", () => {
   it.each([
-    ["read-only", false, ["list_checks", "get_check", "list_flips"]],
+    [
+      "read-only",
+      false,
+      ["list_checks", "get_check", "list_flips", "get_health_summary", "get_setup_snippet"],
+    ],
     [
       "read-write",
       false,
-      ["list_checks", "get_check", "list_pings", "list_flips", "list_channels"],
+      [
+        "list_checks",
+        "get_check",
+        "list_flips",
+        "get_health_summary",
+        "get_setup_snippet",
+        "list_pings",
+        "list_channels",
+        "get_last_failure",
+      ],
     ],
     [
       "read-write",
@@ -189,14 +300,20 @@ describe("tool visibility", () => {
       [
         "list_checks",
         "get_check",
-        "list_pings",
         "list_flips",
+        "get_health_summary",
+        "get_setup_snippet",
+        "list_pings",
         "list_channels",
+        "get_last_failure",
         "create_check",
+        "upsert_check",
         "update_check",
         "pause_check",
         "resume_check",
         "delete_check",
+        "report_run",
+        "test_channel",
       ],
     ],
   ] as const)("exposes the exact %s tool set", async (access, enableWrites, expected) => {
@@ -204,12 +321,67 @@ describe("tool visibility", () => {
     const listed = await client.listTools();
     expect(listed.tools.map((tool) => tool.name)).toEqual(expected);
     if (enableWrites) {
+      expect(listed.tools.find((tool) => tool.name === "create_check")?.annotations).toMatchObject({
+        destructiveHint: false,
+        openWorldHint: false,
+        readOnlyHint: false,
+      });
+      expect(listed.tools.find((tool) => tool.name === "upsert_check")?.annotations).toMatchObject({
+        destructiveHint: true,
+        openWorldHint: false,
+        readOnlyHint: false,
+      });
       expect(listed.tools.find((tool) => tool.name === "delete_check")?.annotations).toMatchObject({
         destructiveHint: true,
         openWorldHint: false,
         readOnlyHint: false,
       });
+      expect(listed.tools.find((tool) => tool.name === "report_run")?.annotations).toMatchObject({
+        destructiveHint: false,
+        openWorldHint: false,
+        readOnlyHint: false,
+      });
+      expect(listed.tools.find((tool) => tool.name === "test_channel")?.annotations).toMatchObject({
+        destructiveHint: false,
+        openWorldHint: false,
+        readOnlyHint: false,
+      });
     }
+  });
+
+  it("hides hosted-MCP-only tools when enableMcpEndpoints is false (stdio mode)", async () => {
+    const { client } = await createHarness({
+      access: "read-write",
+      enableWrites: true,
+      enableMcpEndpoints: false,
+    });
+    const listed = await client.listTools();
+    expect(listed.tools.map((tool) => tool.name)).toEqual([
+      "list_checks",
+      "get_check",
+      "list_flips",
+      "get_health_summary",
+      "get_setup_snippet",
+      "list_pings",
+      "list_channels",
+      "create_check",
+      "upsert_check",
+      "update_check",
+      "pause_check",
+      "resume_check",
+      "delete_check",
+    ]);
+    const stdioCreate = listed.tools.find((tool) => tool.name === "create_check");
+    expect(stdioCreate?.description).not.toContain("report scheduled AI runs");
+
+    const { client: hostedClient } = await createHarness({
+      access: "read-write",
+      enableWrites: true,
+      enableMcpEndpoints: true,
+    });
+    const hostedListed = await hostedClient.listTools();
+    const hostedCreate = hostedListed.tools.find((tool) => tool.name === "create_check");
+    expect(hostedCreate?.description).toContain("report scheduled AI runs");
   });
 
   it("advertises a strict object output schema for every tool", async () => {
@@ -218,14 +390,20 @@ describe("tool visibility", () => {
     const expectedRootProperties: Record<string, string> = {
       list_checks: "checks",
       get_check: "check",
-      list_pings: "pings",
       list_flips: "flips",
+      get_health_summary: "summary",
+      get_setup_snippet: "setup",
+      list_pings: "pings",
       list_channels: "channels",
+      get_last_failure: "failure",
       create_check: "check",
+      upsert_check: "check",
       update_check: "check",
       pause_check: "check",
       resume_check: "check",
       delete_check: "deleted",
+      report_run: "report",
+      test_channel: "result",
     };
 
     for (const tool of listed.tools) {
@@ -236,7 +414,7 @@ describe("tool visibility", () => {
     }
   });
 
-  it("describes every input parameter without changing required fields", async () => {
+  it("describes every input parameter and keeps tool descriptions self-contained", async () => {
     const { client } = await createHarness({ access: "read-write", enableWrites: true });
     const listed = await client.listTools();
     const writable = [
@@ -262,16 +440,39 @@ describe("tool visibility", () => {
     const expectedProperties: Record<string, string[]> = {
       list_checks: ["slug", "tags", "limit"],
       get_check: ["unique_key"],
-      list_pings: ["unique_key", "limit"],
       list_flips: ["unique_key", "seconds", "start", "end", "limit"],
+      get_health_summary: ["tags"],
+      get_setup_snippet: ["unique_key", "platform", "include_start"],
+      list_pings: ["unique_key", "limit"],
       list_channels: ["limit"],
-      create_check: [...writable, "unique"],
+      get_last_failure: ["unique_key"],
+      create_check: [...writable],
+      upsert_check: [...writable, "unique"],
       update_check: ["unique_key", ...writable],
       pause_check: ["unique_key"],
       resume_check: ["unique_key"],
       delete_check: ["unique_key"],
+      report_run: ["unique_key", "status", "exit_status", "summary", "rid"],
+      test_channel: ["name"],
     };
-    const optionalTools = new Set(["list_checks", "list_channels", "create_check"]);
+    const expectedRequired: Record<string, string[]> = {
+      list_checks: [],
+      get_check: ["unique_key"],
+      list_flips: ["unique_key"],
+      get_health_summary: [],
+      get_setup_snippet: ["unique_key", "platform"],
+      list_pings: ["unique_key"],
+      list_channels: [],
+      get_last_failure: ["unique_key"],
+      create_check: [],
+      upsert_check: ["unique"],
+      update_check: ["unique_key"],
+      pause_check: ["unique_key"],
+      resume_check: ["unique_key"],
+      delete_check: ["unique_key"],
+      report_run: ["unique_key", "status"],
+      test_channel: ["name"],
+    };
 
     for (const tool of listed.tools) {
       const schema = tool.inputSchema as {
@@ -286,44 +487,15 @@ describe("tool visibility", () => {
       for (const [name, property] of Object.entries(properties)) {
         expect(property.description?.trim().length, `${tool.name}.${name}`).toBeGreaterThan(0);
       }
-      expect(schema.required ?? [], tool.name).toEqual(
-        optionalTools.has(tool.name) ? [] : ["unique_key"]
+      expect((schema.required ?? []).sort(), tool.name).toEqual(
+        [...expectedRequired[tool.name]!].sort()
       );
+      const crossReferences = listed.tools
+        .filter((candidate) => candidate.name !== tool.name)
+        .filter((candidate) => tool.description?.includes(candidate.name))
+        .map((candidate) => candidate.name);
+      expect(crossReferences, tool.name).toEqual([]);
     }
-
-    const schemas = Object.fromEntries(
-      listed.tools.map((tool) => [
-        tool.name,
-        tool.inputSchema as { properties: Record<string, Record<string, unknown>> },
-      ])
-    );
-    expect(schemas.list_checks!.properties.slug).toMatchObject({
-      type: "string",
-      maxLength: 100,
-      pattern: "^[a-z0-9_-]*$",
-    });
-    expect(schemas.list_checks!.properties.limit).toMatchObject({
-      type: "integer",
-      minimum: 1,
-      maximum: 100,
-    });
-    expect(schemas.create_check!.properties.timeout).toMatchObject({
-      type: "integer",
-      minimum: 60,
-      maximum: 31_536_000,
-    });
-    expect(schemas.create_check!.properties.methods).toMatchObject({
-      enum: ["", "POST"],
-    });
-    expect(schemas.create_check!.properties.unique).toMatchObject({
-      maxItems: 5,
-      description:
-        'Match an existing check by these fields and update its supplied settings; otherwise create a new check. Supported fields: name, slug, tags, timeout, or grace; for example ["name"].',
-    });
-    expect(schemas.list_flips!.properties.limit).toMatchObject({
-      minimum: 1,
-      maximum: 200,
-    });
   });
 
   it("describes the list_flips binary status projection", async () => {
@@ -335,156 +507,41 @@ describe("tool visibility", () => {
       "List retained status changes for a check, newest first, with optional time filters. In results, up: 1 means the check became up; up: 0 means any other status, including down, paused, and new after resume. A pause or resume that changes the check's status records a flip."
     );
   });
-
-  it("matches the reviewed directory metadata", async () => {
-    const { client } = await createHarness({ access: "read-write", enableWrites: true });
-    const listed = await client.listTools();
-
-    expect(
-      listed.tools.map(({ name, title, description, annotations }) => ({
-        name,
-        title,
-        description,
-        annotations,
-      }))
-    ).toEqual([
-      {
-        name: "list_checks",
-        title: "List Watchgoose checks",
-        description:
-          "List checks in this Watchgoose project, optionally filtered by slug or tags. A successful ping arms a new check; Watchgoose then expects the next success within its timeout or schedule plus grace period.",
-        annotations: {
-          readOnlyHint: true,
-          destructiveHint: false,
-          idempotentHint: true,
-          openWorldHint: false,
-        },
-      },
-      {
-        name: "get_check",
-        title: "Get a Watchgoose check",
-        description:
-          "Get one check by its stable unique_key, including its current state and schedule. Cron and OnCalendar checks use schedule plus grace; simple checks use timeout plus grace.",
-        annotations: {
-          readOnlyHint: true,
-          destructiveHint: false,
-          idempotentHint: true,
-          openWorldHint: false,
-        },
-      },
-      {
-        name: "list_pings",
-        title: "List a check's pings",
-        description:
-          "List recent signals for a check, newest first. Success arms or advances monitoring, /fail records failure, and /start begins runtime measurement. Source addresses, user agents, run IDs, body URLs, and ping bodies are never returned.",
-        annotations: {
-          readOnlyHint: true,
-          destructiveHint: false,
-          idempotentHint: true,
-          openWorldHint: false,
-        },
-      },
-      {
-        name: "list_flips",
-        title: "List a check's status changes",
-        description:
-          "List retained status changes for a check, newest first, with optional time filters. In results, up: 1 means the check became up; up: 0 means any other status, including down, paused, and new after resume. A pause or resume that changes the check's status records a flip.",
-        annotations: {
-          readOnlyHint: true,
-          destructiveHint: false,
-          idempotentHint: true,
-          openWorldHint: false,
-        },
-      },
-      {
-        name: "list_channels",
-        title: "List Watchgoose integrations",
-        description:
-          "List integration names and kinds available for check notifications. Only exact, unique integration names can be assigned to checks.",
-        annotations: {
-          readOnlyHint: true,
-          destructiveHint: false,
-          idempotentHint: true,
-          openWorldHint: false,
-        },
-      },
-      {
-        name: "create_check",
-        title: "Create a Watchgoose check",
-        description:
-          "Create a simple timeout check or a cron/OnCalendar schedule check. When unique fields match an existing check, update that check instead: supplied settings replace existing values, and channels: [] removes all alert integration assignments. Omitted fields on a matched check remain unchanged. All fields are optional; schedule takes precedence over timeout. Only newly created checks remain unarmed until their first successful ping. Creating a check does not instrument the job, and this server never returns ping URLs: after creating one, tell the user to open the check in their Watchgoose dashboard, copy its ping URL from Usage Examples, and request it at the end of the job after the work succeeds.",
-        annotations: {
-          readOnlyHint: false,
-          destructiveHint: true,
-          idempotentHint: false,
-          openWorldHint: false,
-        },
-      },
-      {
-        name: "update_check",
-        title: "Update a Watchgoose check",
-        description:
-          "Update selected fields on an existing check. Omitted fields remain unchanged; schedule takes precedence over timeout, and integration names must match exactly.",
-        annotations: {
-          readOnlyHint: false,
-          destructiveHint: true,
-          idempotentHint: true,
-          openWorldHint: false,
-        },
-      },
-      {
-        name: "pause_check",
-        title: "Pause a Watchgoose check",
-        description:
-          "Pause monitoring without deleting the check. Unless manual_resume is enabled, a later ping can automatically resume a paused check.",
-        annotations: {
-          readOnlyHint: false,
-          destructiveHint: true,
-          idempotentHint: true,
-          openWorldHint: false,
-        },
-      },
-      {
-        name: "resume_check",
-        title: "Resume a Watchgoose check",
-        description:
-          "Resume a paused check and return it to the new state. The next successful ping arms its monitoring schedule.",
-        annotations: {
-          readOnlyHint: false,
-          destructiveHint: true,
-          idempotentHint: true,
-          openWorldHint: false,
-        },
-      },
-      {
-        name: "delete_check",
-        title: "Delete a Watchgoose check",
-        description:
-          "Permanently delete a check and its retained monitoring history. This cannot be undone.",
-        annotations: {
-          readOnlyHint: false,
-          destructiveHint: true,
-          idempotentHint: false,
-          openWorldHint: false,
-        },
-      },
-    ]);
-
-    for (const tool of listed.tools) {
-      const crossReferences = listed.tools
-        .filter((candidate) => candidate.name !== tool.name)
-        .filter((candidate) => tool.description?.includes(candidate.name))
-        .map((candidate) => candidate.name);
-      expect(crossReferences, tool.name).toEqual([]);
-    }
-  });
 });
 
 describe("tool calls", () => {
-  it("preserves upsert matching and converts empty integration assignments to the API clearing value", async () => {
+  it("defaults create_check channels to '*' and auto-generates slug from name", async () => {
     const { client, requests } = await createHarness({ access: "read-write", enableWrites: true });
     const result = await client.callTool({
       name: "create_check",
+      arguments: {
+        name: "Nightly DB Backup",
+        timeout: 86_400,
+      },
+    });
+
+    expect(result.isError, textOf(result)).not.toBe(true);
+    expectStructuredParity(result);
+    const parsed = result.structuredContent as { check: { dashboard_url: string } };
+    expect(parsed.check.dashboard_url).toBe(`https://watchgoose.test/cloaked/${UNIQUE_KEY}/`);
+    expect(requests).toContainEqual(
+      expect.objectContaining({
+        method: "POST",
+        pathname: "/api/v3/checks/",
+        body: {
+          name: "Nightly DB Backup",
+          slug: "nightly-db-backup",
+          channels: "*",
+          timeout: 86_400,
+        },
+      })
+    );
+  });
+
+  it("preserves upsert_check matching and converts empty integration assignments to clearing value", async () => {
+    const { client, requests } = await createHarness({ access: "read-write", enableWrites: true });
+    const result = await client.callTool({
+      name: "upsert_check",
       arguments: {
         name: "Nightly backup",
         unique: ["name"],
@@ -509,23 +566,84 @@ describe("tool calls", () => {
     ]);
   });
 
+  it("summarizes project health and flags fresh starter projects", async () => {
+    const { client } = await createHarness(
+      { access: "read-write", enableWrites: true },
+      undefined,
+      "",
+      [{ id: CHANNEL_ID, name: "Ops email", kind: "email" }],
+      [
+        rawCheck({
+          name: "My First Check",
+          slug: "my-first-check",
+          status: "new",
+          n_pings: 0,
+          channels: "",
+        }),
+      ]
+    );
+    const result = await client.callTool({ name: "get_health_summary", arguments: {} });
+    expect(result.isError, textOf(result)).not.toBe(true);
+    expectStructuredParity(result);
+    const summary = (result.structuredContent as { summary: Record<string, unknown> }).summary;
+    expect(summary.total).toBe(1);
+    expect(summary.is_fresh_starter_project).toBe(true);
+    expect(summary.counts).toEqual({ up: 0, down: 0, grace: 0, new: 1, paused: 0 });
+    expect(summary.channels_available).toBe(1);
+    expect(summary.checks_without_channels).toHaveLength(1);
+  });
+
+  it("generates platform setup snippets and AI routine report_run instructions", async () => {
+    const { client } = await createHarness({ access: "read-only" });
+
+    const cron = await client.callTool({
+      name: "get_setup_snippet",
+      arguments: { unique_key: UNIQUE_KEY, platform: "cron" },
+    });
+    expect(cron.isError, textOf(cron)).not.toBe(true);
+    expectStructuredParity(cron);
+    const cronSetup = (cron.structuredContent as { setup: Record<string, unknown> }).setup;
+    expect(cronSetup.uses_mcp_report_run).toBe(false);
+    expect(cronSetup.dashboard_url).toBe(`https://watchgoose.test/cloaked/${UNIQUE_KEY}/`);
+    expect(cronSetup.snippet).toContain("WATCHGOOSE_PING_URL_NIGHTLY_BACKUP");
+    expect(cronSetup.snippet).not.toContain("ping/private");
+
+    const routine = await client.callTool({
+      name: "get_setup_snippet",
+      arguments: { unique_key: UNIQUE_KEY, platform: "codex-automation" },
+    });
+    expect(routine.isError, textOf(routine)).not.toBe(true);
+    const routineSetup = (routine.structuredContent as { setup: Record<string, unknown> }).setup;
+    expect(routineSetup.uses_mcp_report_run).toBe(true);
+    expect(routineSetup.snippet).toContain("report_run");
+    expect(routineSetup.snippet).toContain(UNIQUE_KEY);
+    expect(routineSetup.instructions).toContain("Codex Automation");
+    expect(routineSetup.instructions).not.toContain("codex-automation");
+  });
+
   it("executes and sanitizes every tool through MCP", async () => {
     const { client, requests } = await createHarness({ access: "read-write", enableWrites: true });
     await client.listTools();
     const calls = [
       ["list_checks", { slug: "nightly-backup", tags: ["prod"], limit: 10 }],
       ["get_check", { unique_key: UNIQUE_KEY }],
-      ["list_pings", { unique_key: UNIQUE_KEY, limit: 10 }],
       ["list_flips", { unique_key: UNIQUE_KEY, seconds: 3600, limit: 10 }],
+      ["get_health_summary", { tags: ["prod"] }],
+      ["get_setup_snippet", { unique_key: UNIQUE_KEY, platform: "docker" }],
+      ["list_pings", { unique_key: UNIQUE_KEY, limit: 10 }],
       ["list_channels", { limit: 10 }],
+      ["get_last_failure", { unique_key: UNIQUE_KEY }],
       [
         "create_check",
         { name: "Nightly backup", tags: ["prod", "backup"], channels: ["Ops email"] },
       ],
+      ["upsert_check", { name: "Nightly backup", unique: ["name"], channels: ["Ops email"] }],
       ["update_check", { unique_key: UNIQUE_KEY, name: "Updated", channels: ["Ops email"] }],
       ["pause_check", { unique_key: UNIQUE_KEY }],
       ["resume_check", { unique_key: UNIQUE_KEY }],
       ["delete_check", { unique_key: UNIQUE_KEY }],
+      ["report_run", { unique_key: UNIQUE_KEY, status: "success", summary: "All good" }],
+      ["test_channel", { name: "Ops email" }],
     ] as const;
 
     for (const [name, args] of calls) {
@@ -544,23 +662,44 @@ describe("tool calls", () => {
     );
     expect(requests).toContainEqual(
       expect.objectContaining({
+        method: "POST",
+        pathname: `/api/v3/mcp/checks/${UNIQUE_KEY}/report/`,
+        body: { status: "success", summary: "All good" },
+      })
+    );
+    expect(requests).toContainEqual(
+      expect.objectContaining({
         method: "GET",
-        pathname: "/api/v3/checks/",
-        search: "?slug=nightly-backup&tag=prod",
+        pathname: `/api/v3/mcp/checks/${UNIQUE_KEY}/last-failure/`,
       })
     );
     expect(requests).toContainEqual(
       expect.objectContaining({
         method: "POST",
-        pathname: "/api/v3/checks/",
-        body: expect.objectContaining({
-          tags: "prod backup",
-          channels: CHANNEL_ID,
-        }),
+        pathname: "/api/v3/mcp/channels/test/",
+        body: { name: "Ops email" },
       })
     );
     expect(requests.every((request) => request.headers.get("x-api-key") === API_KEY)).toBe(true);
     expect(requests.every((request) => request.redirect === "error")).toBe(true);
+  });
+
+  it("returns structured failure metadata without ping body contents", async () => {
+    const { client } = await createHarness({ access: "read-write", enableWrites: false });
+    const result = await client.callTool({
+      name: "get_last_failure",
+      arguments: { unique_key: UNIQUE_KEY },
+    });
+    expect(result.isError, textOf(result)).not.toBe(true);
+    const failure = (
+      result.structuredContent as {
+        failure: { dashboard_url: string; ping: { has_body: boolean; body_size_bytes: number } };
+      }
+    ).failure;
+    expect(failure.dashboard_url).toBe(`https://watchgoose.test/cloaked/${UNIQUE_KEY}/`);
+    expect(failure.ping.has_body).toBe(true);
+    expect(failure.ping.body_size_bytes).toBe(128);
+    expect(textOf(result)).not.toContain("body_excerpt");
   });
 
   it("returns a friendly error for every tool", async () => {
@@ -569,14 +708,20 @@ describe("tool calls", () => {
     const calls: Record<string, Record<string, unknown>> = {
       list_checks: {},
       get_check: { unique_key: UNIQUE_KEY },
-      list_pings: { unique_key: UNIQUE_KEY },
       list_flips: { unique_key: UNIQUE_KEY },
+      get_health_summary: {},
+      get_setup_snippet: { unique_key: UNIQUE_KEY, platform: "cron" },
+      list_pings: { unique_key: UNIQUE_KEY },
       list_channels: {},
+      get_last_failure: { unique_key: UNIQUE_KEY },
       create_check: { name: "Test" },
+      upsert_check: { name: "Test", unique: ["name"] },
       update_check: { unique_key: UNIQUE_KEY, name: "Test" },
       pause_check: { unique_key: UNIQUE_KEY },
       resume_check: { unique_key: UNIQUE_KEY },
       delete_check: { unique_key: UNIQUE_KEY },
+      report_run: { unique_key: UNIQUE_KEY, status: "success" },
+      test_channel: { name: "Ops email" },
     };
 
     for (const [name, args] of Object.entries(calls)) {

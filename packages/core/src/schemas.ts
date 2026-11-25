@@ -1,5 +1,6 @@
 import * as z from "zod/v4";
 import { RESULT_CAPS } from "./constants.js";
+import { SETUP_SNIPPET_PLATFORMS } from "./snippets.js";
 
 export const SAFE_CHECK_FIELDS = [
   "name",
@@ -168,10 +169,23 @@ export const getCheckInputSchema = z.object({ unique_key: inputUniqueKeySchema }
 export const createCheckInputSchema = z
   .object({
     ...writableFields,
+    channels: z
+      .array(channelNameSchema)
+      .max(100)
+      .optional()
+      .describe(
+        "Exact, unique integration names to assign; omit to assign all existing project integrations automatically, or pass [] to assign none."
+      ),
+  })
+  .strict();
+
+export const upsertCheckInputSchema = z
+  .object({
+    ...writableFields,
     unique: z
       .array(z.enum(["name", "slug", "tags", "timeout", "grace"]))
+      .min(1)
       .max(5)
-      .optional()
       .describe(
         'Match an existing check by these fields and update its supplied settings; otherwise create a new check. Supported fields: name, slug, tags, timeout, or grace; for example ["name"].'
       ),
@@ -253,6 +267,63 @@ export const listChannelsInputSchema = z
   })
   .strict();
 
+export const getHealthSummaryInputSchema = z
+  .object({
+    tags: tagsSchema
+      .optional()
+      .describe('Optional tags to filter the health summary, for example ["production"].'),
+  })
+  .strict();
+
+export const getSetupSnippetInputSchema = z
+  .object({
+    unique_key: inputUniqueKeySchema,
+    platform: z
+      .enum(SETUP_SNIPPET_PLATFORMS)
+      .describe(
+        "Target platform: cron, systemd, docker, aws-ecs, github-actions, python, rclone, claude-routine, cursor-automation, or codex-automation."
+      ),
+    include_start: z
+      .boolean()
+      .optional()
+      .describe("When true (default), include a start signal for runtime tracking."),
+  })
+  .strict();
+
+export const reportRunInputSchema = z
+  .object({
+    unique_key: inputUniqueKeySchema,
+    status: z
+      .enum(["start", "success", "fail", "log"])
+      .describe("Signal kind to record: start, success, fail, or log."),
+    exit_status: z
+      .number()
+      .int()
+      .min(0)
+      .max(255)
+      .optional()
+      .describe("Optional process exit status (0-255); valid only with success (0) or fail."),
+    summary: z
+      .string()
+      .max(4096)
+      .optional()
+      .describe("Optional short run summary or error note (up to 4096 UTF-8 bytes)."),
+    rid: z
+      .string()
+      .uuid()
+      .optional()
+      .describe("Optional UUID run identifier to pair a start signal with its completion."),
+  })
+  .strict();
+
+export const getLastFailureInputSchema = z.object({ unique_key: inputUniqueKeySchema }).strict();
+
+export const testChannelInputSchema = z
+  .object({
+    name: channelNameSchema.describe("Exact, unique integration name to send a test alert to."),
+  })
+  .strict();
+
 const safeScalarOutputSchema = z.union([z.string(), z.number(), z.boolean(), z.null()]);
 
 function optionalScalarShape<const T extends readonly string[]>(
@@ -275,6 +346,7 @@ const sanitizedChannelOutputSchema = z.object(requiredStringShape(SAFE_CHANNEL_F
 const sanitizedCheckOutputSchema = z
   .object({
     unique_key: uniqueKeySchema,
+    dashboard_url: z.string().optional(),
     ...optionalScalarShape(SAFE_CHECK_FIELDS),
     channels: z.array(sanitizedChannelOutputSchema).optional(),
   })
@@ -323,11 +395,166 @@ export const deleteCheckOutputSchema = z
   .object({ deleted: sanitizedCheckOutputSchema, meta: objectMetaOutputSchema.optional() })
   .strict();
 
+const healthCheckRefSchema = z
+  .object({
+    unique_key: uniqueKeySchema,
+    dashboard_url: z.string(),
+    name: z.string().optional(),
+    slug: z.string().optional(),
+    status: z.string().optional(),
+    n_pings: z.number().int().optional(),
+    last_ping: z.string().nullable().optional(),
+    next_ping: z.string().nullable().optional(),
+  })
+  .strict();
+
+export const getHealthSummaryOutputSchema = z
+  .object({
+    summary: z
+      .object({
+        total: z.number().int().nonnegative(),
+        counts: z
+          .object({
+            up: z.number().int().nonnegative(),
+            down: z.number().int().nonnegative(),
+            grace: z.number().int().nonnegative(),
+            new: z.number().int().nonnegative(),
+            paused: z.number().int().nonnegative(),
+          })
+          .strict(),
+        is_fresh_starter_project: z.boolean(),
+        down_checks: z.array(healthCheckRefSchema),
+        grace_checks: z.array(healthCheckRefSchema),
+        unarmed_checks: z.array(healthCheckRefSchema),
+        paused_checks: z.array(healthCheckRefSchema),
+        checks_without_channels: z.array(healthCheckRefSchema).optional(),
+        channels_available: z.number().int().nonnegative().optional(),
+      })
+      .strict(),
+    meta: objectMetaOutputSchema.optional(),
+  })
+  .strict();
+
+export const getSetupSnippetOutputSchema = z
+  .object({
+    setup: z
+      .object({
+        platform: z.enum(SETUP_SNIPPET_PLATFORMS),
+        unique_key: uniqueKeySchema,
+        dashboard_url: z.string(),
+        env_var: z.string(),
+        uses_mcp_report_run: z.boolean(),
+        snippet: z.string(),
+        instructions: z.string(),
+      })
+      .strict(),
+    meta: objectMetaOutputSchema.optional(),
+  })
+  .strict();
+
+export const reportRunOutputSchema = z
+  .object({
+    report: z
+      .object({
+        unique_key: uniqueKeySchema,
+        dashboard_url: z.string(),
+        name: z.string(),
+        slug: z.string(),
+        action: z.string(),
+        status: z.string(),
+        started: z.boolean(),
+        n_pings: z.number().int().nonnegative(),
+        last_ping: z.string().nullable(),
+        next_ping: z.string().nullable(),
+        last_duration: z.number().nullable(),
+      })
+      .strict(),
+    meta: objectMetaOutputSchema.optional(),
+  })
+  .strict();
+
+const lastFailurePingOutputSchema = z
+  .object({
+    type: z.string(),
+    date: z.string(),
+    n: z.number().int().nullable(),
+    exit_status: z.number().int().nullable(),
+    scheme: z.string(),
+    method: z.string(),
+    has_body: z.boolean(),
+    body_size_bytes: z.number().int().nonnegative(),
+  })
+  .strict();
+
+export const getLastFailureOutputSchema = z
+  .object({
+    failure: z
+      .object({
+        unique_key: uniqueKeySchema,
+        dashboard_url: z.string(),
+        name: z.string(),
+        status: z.string(),
+        has_failure: z.boolean(),
+        last_down_at: z.string().nullable(),
+        reason: z.string().nullable(),
+        reason_long: z.string().nullable(),
+        down_duration_seconds: z.number().int().nullable(),
+        ping: lastFailurePingOutputSchema.nullable(),
+      })
+      .strict(),
+    meta: objectMetaOutputSchema.optional(),
+  })
+  .strict();
+
+export const testChannelOutputSchema = z
+  .object({
+    result: z
+      .object({
+        name: z.string(),
+        kind: z.string(),
+        sent: z.boolean(),
+        error: z.string().nullable(),
+      })
+      .strict(),
+    meta: objectMetaOutputSchema.optional(),
+  })
+  .strict();
+
 export const apiRecordSchema = z.record(z.string(), z.unknown());
 export const checksResponseSchema = z.object({ checks: z.array(apiRecordSchema) });
 export const pingsResponseSchema = z.object({ pings: z.array(apiRecordSchema) });
 export const flipsResponseSchema = z.object({ flips: z.array(apiRecordSchema) });
 export const channelsResponseSchema = z.object({ channels: z.array(apiRecordSchema) });
+export const reportRunResponseSchema = z.object({
+  unique_key: uniqueKeySchema,
+  name: z.string(),
+  slug: z.string(),
+  action: z.string(),
+  status: z.string(),
+  started: z.boolean(),
+  n_pings: z.number().int().nonnegative(),
+  last_ping: z.string().nullable(),
+  next_ping: z.string().nullable(),
+  last_duration: z.number().nullable().optional(),
+});
+export const lastFailureResponseSchema = z.object({
+  unique_key: uniqueKeySchema,
+  name: z.string(),
+  status: z.string(),
+  has_failure: z.boolean(),
+  last_down_at: z.string().nullable(),
+  reason: z.string().nullable(),
+  reason_long: z.string().nullable(),
+  down_duration_seconds: z.number().int().nullable(),
+  ping: lastFailurePingOutputSchema.nullable(),
+});
+export const testChannelResponseSchema = z.object({
+  name: z.string(),
+  kind: z.string(),
+  sent: z.boolean(),
+  error: z.string().nullable(),
+});
 
 export type CreateCheckInput = z.infer<typeof createCheckInputSchema>;
+export type UpsertCheckInput = z.infer<typeof upsertCheckInputSchema>;
 export type UpdateCheckInput = z.infer<typeof updateCheckInputSchema>;

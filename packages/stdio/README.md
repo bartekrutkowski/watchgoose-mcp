@@ -145,32 +145,64 @@ The server classifies key prefixes locally and never probes the API to infer acc
 
 ## Tools
 
-Checks are addressed by stable 40-character `unique_key` values. UUIDs, ping URLs, and integration
-UUIDs are used only inside the server and are not shown to the AI client.
+Checks are addressed by stable 40-character `unique_key` values and include a clickable
+`dashboard_url` (`/cloaked/<unique_key>/`) for opening the check in Watchgoose. UUIDs, ping URLs,
+and integration UUIDs are used only inside the server and are not shown to the AI client.
 
-| Tool            | Required access                | Management API mapping                                  |
-| --------------- | ------------------------------ | ------------------------------------------------------- |
-| `list_checks`   | Read-only                      | `GET /checks/`                                          |
-| `get_check`     | Read-only                      | `GET /checks/<unique_key>`                              |
-| `list_flips`    | Read-only                      | `GET /checks/<unique_key>/flips/`                       |
-| `list_pings`    | Read-write                     | Resolve `unique_key`, then `GET /checks/<uuid>/pings/`  |
-| `list_channels` | Read-write                     | `GET /channels/`                                        |
-| `create_check`  | Read-write plus writes enabled | `POST /checks/`                                         |
-| `update_check`  | Read-write plus writes enabled | Resolve `unique_key`, then `POST /checks/<uuid>`        |
-| `pause_check`   | Read-write plus writes enabled | Resolve `unique_key`, then `POST /checks/<uuid>/pause`  |
-| `resume_check`  | Read-write plus writes enabled | Resolve `unique_key`, then `POST /checks/<uuid>/resume` |
-| `delete_check`  | Read-write plus writes enabled | Resolve `unique_key`, then `DELETE /checks/<uuid>`      |
+| Tool                 | Required access                         | Management API mapping                                      |
+| -------------------- | --------------------------------------- | ----------------------------------------------------------- |
+| `list_checks`        | Read-only                               | `GET /checks/`                                              |
+| `get_check`          | Read-only                               | `GET /checks/<unique_key>`                                  |
+| `list_flips`         | Read-only                               | `GET /checks/<unique_key>/flips/`                           |
+| `get_health_summary` | Read-only                               | `GET /checks/` (+ `GET /channels/` when read-write)         |
+| `get_setup_snippet`  | Read-only                               | `GET /checks/<unique_key>` (generates local setup template) |
+| `list_pings`         | Read-write                              | Resolve `unique_key`, then `GET /checks/<uuid>/pings/`      |
+| `list_channels`      | Read-write                              | `GET /channels/`                                            |
+| `get_last_failure`   | Read-write (hosted OAuth only)          | `GET /mcp/checks/<unique_key>/last-failure/`                |
+| `create_check`       | Read-write plus writes enabled          | `POST /checks/`                                             |
+| `upsert_check`       | Read-write plus writes enabled          | `POST /checks/` with `unique`                               |
+| `update_check`       | Read-write plus writes enabled          | Resolve `unique_key`, then `POST /checks/<uuid>`            |
+| `pause_check`        | Read-write plus writes enabled          | Resolve `unique_key`, then `POST /checks/<uuid>/pause`      |
+| `resume_check`       | Read-write plus writes enabled          | Resolve `unique_key`, then `POST /checks/<uuid>/resume`     |
+| `delete_check`       | Read-write plus writes enabled          | Resolve `unique_key`, then `DELETE /checks/<uuid>`          |
+| `report_run`         | Read-write + writes (hosted OAuth only) | `POST /mcp/checks/<unique_key>/report/`                     |
+| `test_channel`       | Read-write + writes (hosted OAuth only) | `POST /mcp/channels/test/`                                  |
+
+The local stdio package (`watchgoose-mcp` on npm) uses project API keys against the standard
+Management API v3 and exposes up to 13 tools (5 read-only, 7 read-write, 13 with writes enabled).
+The hosted OAuth server (`https://mcp.watchgoose.com/mcp`) additionally exposes `get_last_failure`,
+`report_run`, and `test_channel` backed by MCP-token-only audited endpoints.
+
+The server also advertises built-in MCP prompts (`setup_first_monitor`, `audit_cron_jobs`,
+`monitoring_health_review`, and on the hosted OAuth server `monitor_scheduled_agent`) plus concise
+server instructions tailored to the connected server's available tools.
 
 Integration assignments use exact integration names. Names must be non-empty and unique within the
 project.
 
-`create_check` is a create-or-update operation when `unique` is supplied: a matching existing check
-has its supplied settings replaced. `timeout` without `schedule` also switches a scheduled check to
-interval monitoring: the stored schedule string remains, but no longer governs cadence. Include the
-confirmed schedule to retain scheduled monitoring. Other omitted settings remain unchanged.
-`channels: []` clears all alert integration assignments. The tool therefore advertises
-`destructiveHint: true`. A new check awaits success/failure for completion-based cadence; a first
-failure can move it down. An optional start ping can initiate runtime monitoring before completion.
+`create_check` creates a new check (`destructiveHint: false`). When `slug` is omitted and `name` is
+provided, a URL-safe slug is generated automatically. When `channels` is omitted, all existing
+project alert integrations are assigned automatically (`channels: "*"`); pass `channels: []` to
+assign none.
+
+`upsert_check` (`destructiveHint: true`) matches an existing check by the specified `unique` fields
+and replaces its supplied settings (or creates a new check if none match). `timeout` without
+`schedule` also switches a scheduled check to interval monitoring: the stored schedule string
+remains, but no longer governs cadence. Include the confirmed schedule to retain scheduled
+monitoring. On a matched check, other omitted settings remain unchanged and `channels: []` clears
+all alert integration assignments; when creating a new check, omitting `channels` assigns none.
+
+`report_run` (hosted OAuth only) records a real `start`, `success`, `fail`, or `log` signal for a
+check directly through Watchgoose without exposing a ping URL. It is designed for scheduled AI
+routines (Claude Routines, Cursor Automations, Codex Automations) and agent workflows. Never call it
+as a synthetic test ping for an external cron/CI job.
+
+`test_channel` (hosted OAuth only) sends a rate-limited test alert to a named integration. Metered
+SMS, phone call, and WhatsApp integrations (or groups containing them) cannot be tested via MCP and
+must be tested from the Watchgoose dashboard.
+
+A new check awaits success/failure for completion-based cadence; a first failure can move it down.
+An optional start ping can initiate runtime monitoring before completion.
 
 List results are capped at 100 checks, 100 pings, 200 flips, and 100 integrations. Every serialized
 tool result is also capped at 24,000 characters. Results include metadata when entries are omitted.
@@ -182,9 +214,11 @@ tool result is also capped at 24,000 characters. Results include metadata when e
 - API redirects are rejected so credentials cannot be forwarded to another host.
 - Check UUIDs, ping and update URLs, integration UUIDs, and unknown future API fields are removed
   from output.
-- Pings keep only `type`, `date`, `n`, `scheme`, `method`, and `duration`. Source IP addresses, user
-  agents, run IDs, and body URLs are removed.
-- Ping bodies are never requested.
+- `list_pings` keeps only `type`, `date`, `n`, `scheme`, `method`, and `duration`. Source IP
+  addresses, user agents, run IDs, and body URLs are removed.
+- Ping body contents are never sent to the connected AI client. `get_last_failure` returns only
+  structured failure metadata (`reason`, `down_duration_seconds`, `exit_status`, `has_body`,
+  `body_size_bytes`) and a clickable `dashboard_url`.
 - The server has no telemetry.
 
 Protect client configuration files that contain API keys. Prefer a dedicated project and the

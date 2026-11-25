@@ -40,8 +40,9 @@ request is instrumentation-only; no test requests, commands or verification prom
 4. Check `meta.truncated`, `meta.omitted`, and `meta.truncated_fields`. These describe this
    response, not account-wide totals. A partial response or incomplete repository scan yields
    **partial coverage**. Zero checks means this project's query is empty, not the account.
-5. On unavailable tools, denied access, errors, or missing configuration, explain the limitation and
-   finish the offline portion. Never bypass MCP through another API or ask for credentials in chat.
+5. If unauthorized/unavailable, tell the user to sign in (`/mcp` → Authenticate or
+   `codex mcp login watchgoose`), explain the limitation, and finish offline. Never bypass MCP or
+   ask for credentials in chat.
 
 ## Handoff
 

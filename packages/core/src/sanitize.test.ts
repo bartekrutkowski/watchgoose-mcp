@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { MAX_SERIALIZED_OUTPUT_CHARS } from "./constants.js";
 import { listToolResult, objectToolResult, type ToolResult } from "./output.js";
-import { deriveUniqueKey, sanitizeCheck, sanitizePing } from "./sanitize.js";
+import { deriveUniqueKey, sanitizeCheck, sanitizePing, slugifyCheckName } from "./sanitize.js";
 
 const UUID = "12345678-1234-5678-9234-567812345678";
 
@@ -51,6 +51,20 @@ describe("output sanitization", () => {
     });
     const writable = await sanitizeCheck({ uuid: UUID });
     expect(writable.unique_key).toBe(readonly.unique_key);
+  });
+
+  it("emits a cloaked dashboard_url when siteOrigin is supplied and slugifies names safely", async () => {
+    const check = await sanitizeCheck(
+      { uuid: UUID, name: "Nightly DB Backup!" },
+      undefined,
+      "https://watchgoose.com"
+    );
+    expect(check.dashboard_url).toBe(
+      "https://watchgoose.com/cloaked/22fcf0cd2cf07841d4214d6a14b2b28c1e15be24/"
+    );
+    expect(slugifyCheckName("Nightly DB Backup! (Prod)")).toBe("nightly-db-backup-prod");
+    expect(slugifyCheckName("Sauvegarde été")).toBe("sauvegarde-ete");
+    expect(slugifyCheckName("   ")).toBe("");
   });
 
   it("allowlists ping fields", () => {

@@ -7,8 +7,10 @@ import {
 } from "@modelcontextprotocol/server";
 import {
   mapToolError,
+  registerWatchgoosePrompts,
   registerWatchgooseTools,
   WATCHGOOSE_RELEASE_VERSION,
+  WATCHGOOSE_SERVER_INSTRUCTIONS,
 } from "@watchgoose/mcp-core";
 import type Provider from "oidc-provider";
 import type { ServerConfig } from "./config.js";
@@ -147,16 +149,29 @@ function createMcpServer(
 ): McpServer {
   const server = new McpServer(
     { name: "watchgoose-mcp", version: WATCHGOOSE_RELEASE_VERSION },
-    { capabilities: { tools: { listChanged: false } } }
+    {
+      instructions: WATCHGOOSE_SERVER_INSTRUCTIONS,
+      capabilities: {
+        tools: { listChanged: false },
+        prompts: { listChanged: false },
+      },
+    }
   );
   const canWrite = scopes.has("mcp:write") && credential.access === "read-write";
+  const access = canWrite ? "read-write" : "read-only";
   registerWatchgooseTools(server, {
     apiKey: credential.apiKey,
     apiUrl: config.apiUrl,
-    access: canWrite ? "read-write" : "read-only",
+    access,
     enableWrites: canWrite,
+    enableMcpEndpoints: true,
     fetch: originFetch,
     mapError,
+  });
+  registerWatchgoosePrompts(server, {
+    access,
+    enableWrites: canWrite,
+    enableMcpEndpoints: true,
   });
   return server;
 }

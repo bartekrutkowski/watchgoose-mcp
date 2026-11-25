@@ -26,9 +26,20 @@ export async function deriveUniqueKey(uuid: string): Promise<string> {
   return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
+export function slugifyCheckName(name: string): string {
+  return name
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 100);
+}
+
 export async function sanitizeCheck(
   record: Record<string, unknown>,
-  channelsById?: ChannelById
+  channelsById?: ChannelById,
+  siteOrigin?: string
 ): Promise<Record<string, unknown>> {
   const result: Record<string, unknown> = {};
 
@@ -39,6 +50,10 @@ export async function sanitizeCheck(
     const uuid = typeof record.uuid === "string" ? record.uuid : record.code;
     if (typeof uuid !== "string") throw new InvalidApiResponseError();
     result.unique_key = await deriveUniqueKey(uuid);
+  }
+
+  if (siteOrigin) {
+    result.dashboard_url = `${siteOrigin}/cloaked/${result.unique_key as string}/`;
   }
 
   for (const field of SAFE_CHECK_FIELDS) {

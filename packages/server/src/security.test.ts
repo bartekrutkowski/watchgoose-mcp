@@ -177,6 +177,20 @@ describe("Google Connected Apps compatibility", () => {
     });
   });
 
+  it("filters unsupported extra grant_types when authorization_code is present", () => {
+    expect(
+      normaliseRegistration({
+        redirect_uris: ["https://client.example/cb"],
+        grant_types: [
+          "authorization_code",
+          "client_credentials",
+          "refresh_token",
+          "authorization_code",
+        ],
+      }).grant_types
+    ).toEqual(["authorization_code", "refresh_token"]);
+  });
+
   it("keeps a resource the client sent, so a wrong one is still rejected", () => {
     const params = new URLSearchParams("resource=https://other.example/mcp&scope=mcp:read");
     normaliseAuthorizationParams(params, "https://mcp.example/mcp");

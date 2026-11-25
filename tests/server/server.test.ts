@@ -703,6 +703,8 @@ describe("route and metadata policy", () => {
         }),
       });
       expect(response.status).toBe(400);
+      const errBody = (await response.json()) as { error_description?: string };
+      expect(errBody.error_description).toContain("redirect_uris");
     }
     const sector = await request(service, "/register", {
       method: "POST",
@@ -763,7 +765,7 @@ describe("OAuth and MCP integration", () => {
     });
     const body = (await mcp.json()) as { result: { tools: unknown[] } };
     expect(mcp.status).toBe(200);
-    expect(body.result.tools).toHaveLength(3);
+    expect(body.result.tools).toHaveLength(5);
 
     const refreshRequest = () =>
       request(service, "/token", {
@@ -1219,7 +1221,7 @@ describe("OAuth and MCP integration", () => {
       expect(response.status).toBe(200);
       expect(
         ((await response.json()) as { result: { tools: unknown[] } }).result.tools
-      ).toHaveLength(10);
+      ).toHaveLength(16);
     }
     expect((await run()).status).toBe(200);
     expect((await run()).status).toBe(200);
@@ -1469,7 +1471,9 @@ describe("OAuth and MCP integration", () => {
     try {
       await client.connect(transport);
       expect(client.getDiscoverResult()).toBeDefined();
-      expect((await client.listTools()).tools).toHaveLength(3);
+      expect(client.getInstructions()).toContain("get_health_summary");
+      expect((await client.listTools()).tools).toHaveLength(5);
+      expect((await client.listPrompts()).prompts).toHaveLength(4);
       const result = await client.callTool({ name: "list_checks", arguments: { limit: 1 } });
       expect(result.isError).not.toBe(true);
       const text = result.content[0]?.type === "text" ? result.content[0].text : "";

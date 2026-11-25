@@ -9,22 +9,22 @@ delegated credentials, API keys, client secrets, or unredacted screenshots.
 
 ## Canonical listing payload
 
-| Field               | Value                                                                                                                                                                                                                                                      |
-| ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Name                | Watchgoose                                                                                                                                                                                                                                                 |
-| Permanent slug      | `watchgoose`                                                                                                                                                                                                                                               |
-| Tagline             | Monitor cron jobs and recurring work in Claude.                                                                                                                                                                                                            |
-| Description         | Connect one Watchgoose project to inspect checks and status history. Read-only access is the default. With explicit read-and-write consent, the connector can inspect recent signals and integrations and create, update, pause, resume, or delete checks. |
-| Remote URL          | `https://mcp.watchgoose.com/mcp`                                                                                                                                                                                                                           |
-| Transport           | Streamable HTTP                                                                                                                                                                                                                                            |
-| Authentication      | OAuth 2.1 authorization code flow, PKCE S256, and Dynamic Client Registration                                                                                                                                                                              |
-| OAuth issuer        | `https://mcp.watchgoose.com`                                                                                                                                                                                                                               |
-| Documentation       | `https://watchgoose.com/docs/mcp/`                                                                                                                                                                                                                         |
-| Privacy             | `https://watchgoose.com/legal/privacy/`                                                                                                                                                                                                                    |
-| Support             | `mailto:support@watchgoose.com`                                                                                                                                                                                                                            |
-| Repository          | `https://github.com/bartekrutkowski/watchgoose-mcp`                                                                                                                                                                                                        |
-| Square SVG icon     | `https://watchgoose.com/static/img/watchgoose-mcp.svg`                                                                                                                                                                                                     |
-| Square PNG fallback | `https://watchgoose.com/static/img/watchgoose-icon-512.png`                                                                                                                                                                                                |
+| Field               | Value                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Name                | Watchgoose                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| Permanent slug      | `watchgoose`                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| Tagline             | Monitor cron jobs and recurring work in Claude.                                                                                                                                                                                                                                                                                                                                                                                              |
+| Description         | Connect one Watchgoose project to inspect checks, health summaries, status history, and copy-paste setup snippets. Read-only access is the default. With explicit read-and-write consent, the connector can inspect recent signals, failure metadata (never ping body contents), and integrations, create/upsert/update/pause/resume/delete checks, report scheduled AI routine runs, and send test notifications to non-phone integrations. |
+| Remote URL          | `https://mcp.watchgoose.com/mcp`                                                                                                                                                                                                                                                                                                                                                                                                             |
+| Transport           | Streamable HTTP                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| Authentication      | OAuth 2.1 authorization code flow, PKCE S256, and Dynamic Client Registration                                                                                                                                                                                                                                                                                                                                                                |
+| OAuth issuer        | `https://mcp.watchgoose.com`                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| Documentation       | `https://watchgoose.com/docs/mcp/`                                                                                                                                                                                                                                                                                                                                                                                                           |
+| Privacy             | `https://watchgoose.com/legal/privacy/`                                                                                                                                                                                                                                                                                                                                                                                                      |
+| Support             | `mailto:support@watchgoose.com`                                                                                                                                                                                                                                                                                                                                                                                                              |
+| Repository          | `https://github.com/bartekrutkowski/watchgoose-mcp`                                                                                                                                                                                                                                                                                                                                                                                          |
+| Square SVG icon     | `https://watchgoose.com/static/img/watchgoose-mcp.svg`                                                                                                                                                                                                                                                                                                                                                                                       |
+| Square PNG fallback | `https://watchgoose.com/static/img/watchgoose-icon-512.png`                                                                                                                                                                                                                                                                                                                                                                                  |
 
 The approved tagline is fixed. Do not expand it into uptime, SLA, diagnosis, remediation, log
 aggregation, or execution-analytics claims.
@@ -79,10 +79,12 @@ Prepare these redacted review artifacts:
 3. A successful DCR response with client identifiers and redirect URIs redacted.
 4. The Watchgoose consent screen showing one selected project, read-only selected by default, and
    the requested ongoing-access explanation.
-5. A read-only connection exposing exactly `list_checks`, `get_check`, and `list_flips`.
-6. A read-and-write reconnection showing the explicit consent choice and all ten tools.
-7. Successful list, create, update, pause, resume, and delete behavior against a disposable reviewer
-   project, with all project identifiers and returned data redacted.
+5. A read-only connection exposing exactly `list_checks`, `get_check`, `list_flips`,
+   `get_health_summary`, and `get_setup_snippet` (5 tools) plus 4 built-in prompts.
+6. A read-and-write reconnection showing the explicit consent choice and all 16 tools.
+7. Successful list, summary, snippet, create, upsert, update, pause, resume, delete, failure
+   metadata, report_run, and test_channel behavior against a disposable reviewer project, with all
+   project identifiers and returned data redacted.
 8. Revocation under **Account settings > MCP Connections**, followed by a rejected tool call and a
    successful fresh reconnection.
 9. The live documentation, privacy, support, icon, service-status, and repository URLs.
@@ -164,21 +166,32 @@ the submission after checking the reviewed names, descriptions, and three existi
 source metadata test locks that exact set. Neither deployed `360e1a5` nor its source had
 `openWorldHint`, so there was no hidden deployed/source divergence before T-154. T-154 intentionally
 creates a four-annotation source/deployment difference until it is deployed. Before OpenAI Scan
-Tools, capture the authorized read-write `tools/list` response and require all ten records to match
-the source test exactly, including `openWorldHint: false`.
+Tools, capture the authorized read-write `tools/list` response and require all 16 hosted records to
+match the source test exactly, including `openWorldHint: false`.
 
-| Tool            | Read only | Destructive | Idempotent | Open world | Submission justification                                                                                                                                                                                            |
-| --------------- | --------- | ----------- | ---------- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `list_checks`   | Yes       | No          | Yes        | No         | Reads project checks only.                                                                                                                                                                                          |
-| `get_check`     | Yes       | No          | Yes        | No         | Reads one project check only.                                                                                                                                                                                       |
-| `list_pings`    | Yes       | No          | Yes        | No         | Reads retained signals only.                                                                                                                                                                                        |
-| `list_flips`    | Yes       | No          | Yes        | No         | Reads retained status changes only.                                                                                                                                                                                 |
-| `list_channels` | Yes       | No          | Yes        | No         | Reads integration names and kinds only.                                                                                                                                                                             |
-| `create_check`  | No        | Yes         | No         | No         | Creates a check or updates an existing match through `unique`; supplied settings can replace existing values and `channels: []` can remove all alert assignments. Retries without a match can create another check. |
-| `update_check`  | No        | Yes         | Yes        | No         | Replaces selected project-check settings and may remove existing values. Any later notification is downstream check behavior.                                                                                       |
-| `pause_check`   | No        | Yes         | Yes        | No         | Stops monitoring state for a project check. Any later notification is downstream check behavior.                                                                                                                    |
-| `resume_check`  | No        | Yes         | Yes        | No         | Restarts monitoring state for a project check. Any later notification is downstream check behavior.                                                                                                                 |
-| `delete_check`  | No        | Yes         | No         | No         | Permanently deletes a project check and retained history.                                                                                                                                                           |
+| Tool                 | Read only | Destructive | Idempotent | Open world | Submission justification                                                                                                                                                                     |
+| -------------------- | --------- | ----------- | ---------- | ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `list_checks`        | Yes       | No          | Yes        | No         | Reads project checks only.                                                                                                                                                                   |
+| `get_check`          | Yes       | No          | Yes        | No         | Reads one project check only.                                                                                                                                                                |
+| `list_flips`         | Yes       | No          | Yes        | No         | Reads retained status changes only.                                                                                                                                                          |
+| `get_health_summary` | Yes       | No          | Yes        | No         | Aggregates check status counts and lists risk states within the connected project.                                                                                                           |
+| `get_setup_snippet`  | Yes       | No          | Yes        | No         | Reads check metadata and renders local copy-paste instrumentation templates with env-var placeholders; never returns secret ping URLs.                                                       |
+| `list_pings`         | Yes       | No          | Yes        | No         | Reads retained signals only (no bodies or source metadata).                                                                                                                                  |
+| `list_channels`      | Yes       | No          | Yes        | No         | Reads integration names and kinds only.                                                                                                                                                      |
+| `get_last_failure`   | Yes       | No          | Yes        | No         | Reads latest failure/timeout metadata (reason, duration, exit status, has_body, body_size_bytes); never returns ping body contents.                                                          |
+| `create_check`       | No        | No          | No         | No         | Creates a new check only (upsert behavior moved to `upsert_check`); never overwrites an existing check. Assigns all existing project integrations by default unless `channels` is specified. |
+| `upsert_check`       | No        | Yes         | Yes        | No         | Matches an existing check by `unique` fields and replaces supplied settings (`channels: []` clears assignments), or creates a new check if none match.                                       |
+| `update_check`       | No        | Yes         | Yes        | No         | Replaces selected project-check settings and may remove existing values. Any later notification is downstream check behavior.                                                                |
+| `pause_check`        | No        | Yes         | Yes        | No         | Stops monitoring state for a project check. Any later notification is downstream check behavior.                                                                                             |
+| `resume_check`       | No        | Yes         | Yes        | No         | Restarts monitoring state for a project check. Any later notification is downstream check behavior.                                                                                          |
+| `delete_check`       | No        | Yes         | No         | No         | Permanently deletes a project check and retained history.                                                                                                                                    |
+| `report_run`         | No        | No          | No         | No         | Appends a `start`, `success`, `fail`, or `log` signal server-side for scheduled AI routines without exposing a ping URL.                                                                     |
+| `test_channel`       | No        | No          | No         | No         | Sends a rate-limited test notification to one named non-phone integration (`sms`, `call`, `whatsapp` are blocked to protect monthly quotas).                                                 |
+
+> **Directory update note:** Adding 6 tools and changing `create_check` from `destructiveHint: true`
+> to `destructiveHint: false` requires running **Scan Tools** in OpenAI's MCPs view after deploying
+> Django first and the MCP worker second, and verifying with Anthropic's connector directory whether
+> a listing update or re-review is required before promoting the new tool set.
 
 ### Discovery and consent recommendation
 
@@ -188,20 +201,20 @@ actual authorization URL, including whether it adds `offline_access`, must still
 owner testing. Watchgoose then shows read-only and read-and-write choices, with read-only selected
 by default. The effective grant, not the DCR registration metadata, controls tool visibility:
 
-| Effective consent | Live `tools/list` result                     |
-| ----------------- | -------------------------------------------- |
-| Read only         | `list_checks`, `get_check`, and `list_flips` |
-| Read and write    | All ten tools                                |
+| Effective consent | Live `tools/list` result                                                                       |
+| ----------------- | ---------------------------------------------------------------------------------------------- |
+| Read only         | `list_checks`, `get_check`, `list_flips`, `get_health_summary`, and `get_setup_snippet` (5)    |
+| Read and write    | All 16 tools (hosted OAuth server; local stdio exposes 13 tools against public Management API) |
 
-Scan Tools therefore captures three tools after read-only consent or ten after read-and-write
-consent. A ten-tool snapshot paired later with a read-only connection could advertise seven tools
-that the live server intentionally does not register. OpenAI's public documentation explains the
-snapshot but does not specify whether the client reconciles that mismatch or performs scope step-up.
+Scan Tools therefore captures 5 tools after read-only consent or 16 after read-and-write consent. A
+16-tool snapshot paired later with a read-only connection could advertise 11 tools that the live
+server intentionally does not register. OpenAI's public documentation explains the snapshot but does
+not specify whether the client reconciles that mismatch or performs scope step-up.
 
 Do not change Watchgoose's consent model in this ticket. Before submission, capture the requested
 scope, perform both consent choices in ChatGPT developer mode, and verify whether the client
-refreshes the live list. If it does not, the safe initial submission is the coherent three-tool
-read-only snapshot. A ten-tool-only listing, per-tool scope metadata, or a separate OpenAI access
+refreshes the live list. If it does not, the safe initial submission is the coherent five-tool
+read-only snapshot. A 16-tool-only listing, per-tool scope metadata, or a separate OpenAI access
 model needs an owner decision and a separately reviewed ticket.
 
 ### Dynamic registration longevity
@@ -258,25 +271,31 @@ same payload as serialized JSON for backward compatibility. List results include
 strings were shortened, `meta.truncated_fields`. Object results may include only
 `meta.truncated_fields: true`. The per-tool JSON payloads are:
 
-| Tool            | Top-level payload    | Item fields                                                     |
-| --------------- | -------------------- | --------------------------------------------------------------- |
-| `list_checks`   | `checks[]`, `meta`   | Check fields below; `channels` is omitted for read-only grants. |
-| `get_check`     | `check`              | Check fields below; `channels` is omitted for read-only grants. |
-| `list_pings`    | `pings[]`, `meta`    | `type`, `date`, `n`, `scheme`, `method`, `duration`             |
-| `list_flips`    | `flips[]`, `meta`    | `timestamp`, `up`                                               |
-| `list_channels` | `channels[]`, `meta` | `name`, `kind`                                                  |
-| `create_check`  | `check`              | Check fields below; resolved `channels` may be present.         |
-| `update_check`  | `check`              | Check fields below; resolved `channels` may be present.         |
-| `pause_check`   | `check`              | Check fields below; resolved `channels` may be present.         |
-| `resume_check`  | `check`              | Check fields below; resolved `channels` may be present.         |
-| `delete_check`  | `deleted`            | Check fields below; resolved `channels` may be present.         |
+| Tool                 | Top-level payload    | Item fields                                                                                                                                                                                                                      |
+| -------------------- | -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `list_checks`        | `checks[]`, `meta`   | Check fields below (including `dashboard_url`); `channels` is omitted for read-only grants.                                                                                                                                      |
+| `get_check`          | `check`              | Check fields below (including `dashboard_url`); `channels` is omitted for read-only grants.                                                                                                                                      |
+| `list_flips`         | `flips[]`, `meta`    | `timestamp`, `up`                                                                                                                                                                                                                |
+| `get_health_summary` | `summary`            | `total`, `counts`, `is_fresh_starter_project`, `down_checks[]`, `grace_checks[]`, `unarmed_checks[]`, `paused_checks[]`, and (RW) `checks_without_channels[]`, `channels_available`.                                             |
+| `get_setup_snippet`  | `setup`              | `platform`, `unique_key`, `dashboard_url`, `env_var`, `uses_mcp_report_run`, `snippet`, `instructions`                                                                                                                           |
+| `list_pings`         | `pings[]`, `meta`    | `type`, `date`, `n`, `scheme`, `method`, `duration`                                                                                                                                                                              |
+| `list_channels`      | `channels[]`, `meta` | `name`, `kind`                                                                                                                                                                                                                   |
+| `get_last_failure`   | `failure`            | `unique_key`, `dashboard_url`, `name`, `status`, `has_failure`, `last_down_at`, `reason`, `reason_long`, `down_duration_seconds`, `ping` (`type`, `date`, `n`, `exit_status`, `scheme`, `method`, `has_body`, `body_size_bytes`) |
+| `create_check`       | `check`              | Check fields below; resolved `channels` may be present.                                                                                                                                                                          |
+| `upsert_check`       | `check`              | Check fields below; resolved `channels` may be present.                                                                                                                                                                          |
+| `update_check`       | `check`              | Check fields below; resolved `channels` may be present.                                                                                                                                                                          |
+| `pause_check`        | `check`              | Check fields below; resolved `channels` may be present.                                                                                                                                                                          |
+| `resume_check`       | `check`              | Check fields below; resolved `channels` may be present.                                                                                                                                                                          |
+| `delete_check`       | `deleted`            | Check fields below; resolved `channels` may be present.                                                                                                                                                                          |
+| `report_run`         | `report`             | `unique_key`, `dashboard_url`, `name`, `slug`, `action`, `status`, `started`, `n_pings`, `last_ping`, `next_ping`, `last_duration`                                                                                               |
+| `test_channel`       | `result`             | `name`, `kind`, `sent`, `error`                                                                                                                                                                                                  |
 
-The check allowlist is `unique_key`, `name`, `slug`, `tags`, `desc`, `grace`, `n_pings`, `status`,
-`started`, `last_ping`, `next_ping`, `last_duration`, `manual_resume`, `methods`, `subject`,
-`subject_fail`, `start_kw`, `success_kw`, `failure_kw`, `filter_subject`, `filter_body`,
-`filter_http_body`, `filter_default_fail`, `timeout`, `schedule`, and `tz`. Optional `channels[]`
-items contain only `name` and `kind`. `unique_key` is an opaque stable 40-character check reference
-derived from the UUID; the raw UUID is never returned.
+The check allowlist is `unique_key`, `dashboard_url`, `name`, `slug`, `tags`, `desc`, `grace`,
+`n_pings`, `status`, `started`, `last_ping`, `next_ping`, `last_duration`, `manual_resume`,
+`methods`, `subject`, `subject_fail`, `start_kw`, `success_kw`, `failure_kw`, `filter_subject`,
+`filter_body`, `filter_http_body`, `filter_default_fail`, `timeout`, `schedule`, and `tz`. Optional
+`channels[]` items contain only `name` and `kind`. `unique_key` is an opaque stable 40-character
+check reference derived from the UUID; the raw UUID is never returned.
 
 No raw user, project, check, integration, or ping identifiers; ping URLs; delegated API credentials;
 OAuth tokens; source addresses; user agents; run IDs; ping bodies or body URLs; internal capability
@@ -352,8 +371,8 @@ its own marketplace sections. This source repository also carries a root
 `.cursor-plugin/marketplace.json`, so a local checkout installs the same package.
 
 1. Load the package locally in Cursor, connect, approve read-only consent, and confirm the five
-   skills and three read-only tools appear. Reconnect with read-and-write consent and confirm all
-   ten tools. Redact all project data from any capture.
+   skills and five read-only tools appear. Reconnect with read-and-write consent and confirm all 16
+   hosted tools. Redact all project data from any capture.
 2. Submit `https://github.com/pixeware/watchgoose-plugin` at
    `https://cursor.com/marketplace/publish`.
 3. Record the outcome. Every later manifest, skill, or MCP-config change goes through review again.
@@ -431,7 +450,7 @@ directory.
 
 Before relying on the listing, install it locally with
 `gemini extensions install https://github.com/pixeware/watchgoose-plugin`, run
-`/mcp auth watchgoose`, approve read-only consent, and confirm the five skills and three read-only
+`/mcp auth watchgoose`, approve read-only consent, and confirm the five skills and five read-only
 tools.
 
 ## Kiro powers

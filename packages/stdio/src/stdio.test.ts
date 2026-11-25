@@ -40,7 +40,7 @@ describe("stdio executable", () => {
       packages: Record<string, { version?: string }>;
     };
 
-    expect(packageJson.version).toBe("1.1.3");
+    expect(packageJson.version).toBe("1.2.0");
     expect(SERVER_VERSION).toBe(packageJson.version);
     expect(lock.packages["packages/stdio"]?.version).toBe(packageJson.version);
     expect(packageJson.mcpName).toBe("io.github.bartekrutkowski/watchgoose-mcp");
@@ -66,7 +66,7 @@ describe("stdio executable", () => {
     });
   });
 
-  it("advertises destructive upsert metadata from the bundled executable", async () => {
+  it("advertises non-destructive create_check and destructive upsert_check from the bundled executable", async () => {
     const transport = new StdioClientTransport({
       command: process.execPath,
       args: ["packages/stdio/dist/cli.js"],
@@ -85,14 +85,27 @@ describe("stdio executable", () => {
       const create = listed.tools.find((tool) => tool.name === "create_check");
       expect(create?.annotations).toMatchObject({
         readOnlyHint: false,
-        destructiveHint: true,
+        destructiveHint: false,
         idempotentHint: false,
         openWorldHint: false,
       });
-      expect(create?.description).toContain("update that check instead");
-      expect(create?.description).toContain(
-        "channels: [] removes all alert integration assignments"
-      );
+      expect(create?.description).toContain("dashboard_url");
+      const upsert = listed.tools.find((tool) => tool.name === "upsert_check");
+      expect(upsert?.annotations).toMatchObject({
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: false,
+      });
+      expect(upsert?.description).toContain("unique fields");
+      const prompts = await client.listPrompts();
+      expect(prompts.prompts.map((prompt) => prompt.name)).toEqual([
+        "setup_first_monitor",
+        "audit_cron_jobs",
+        "monitoring_health_review",
+      ]);
+      expect(client.getInstructions()).toContain("get_health_summary");
+      expect(client.getInstructions()).not.toContain("report_run");
     } finally {
       await client.close();
     }
@@ -119,6 +132,8 @@ describe("stdio executable", () => {
         "list_checks",
         "get_check",
         "list_flips",
+        "get_health_summary",
+        "get_setup_snippet",
       ]);
       for (const tool of listed.tools) {
         expect(tool.outputSchema).toMatchObject({
@@ -130,7 +145,7 @@ describe("stdio executable", () => {
       await client.close();
     }
 
-    expect(stderr).toContain("ready with 3 tools");
+    expect(stderr).toContain("ready with 5 tools");
     expect(stderr).not.toContain(API_KEY);
   });
 });

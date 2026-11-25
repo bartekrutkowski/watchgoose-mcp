@@ -93,14 +93,16 @@ assuming all platforms share one command.
 - MCP deliberately removes ping URLs and UUIDs. After a check is created, obtain its private ping
   URL directly from the Watchgoose dashboard into the job's environment/secret manager. `unique_key`
   cannot be used to construct that URL.
-- `create_check` with `unique` may update a matching existing check. `timeout` without `schedule`
-  also switches a scheduled check to interval monitoring; the stored schedule string remains but no
-  longer governs cadence. Include the confirmed schedule to retain scheduled monitoring.
-  `channels: []` removes integration assignments. Review these effects before authorizing a write.
+- `upsert_check` (with `unique`) may update a matching existing check, while `create_check` creates
+  a new check only. `timeout` without `schedule` also switches a scheduled check to interval
+  monitoring; the stored schedule string remains but no longer governs cadence. Include the
+  confirmed schedule to retain scheduled monitoring. `channels: []` removes integration assignments.
+  Review these effects before authorizing a write.
 - A timed-out creation may already have succeeded; reconcile read-only rather than automatically
   retrying.
-- API creation without `channels` assigns no alert integrations. Confirm intended routing or mark it
-  pending; check creation does not establish alert delivery.
+- On `create_check`, omitting `channels` assigns all existing project integrations automatically;
+  pass `channels: []` only for explicitly approved no-alert routing. Confirm intended routing; check
+  creation does not establish alert delivery.
 - A new check awaits a success/fail heartbeat for completion-based cadence; a first failure can move
   it directly down. An optional start heartbeat can initiate runtime-deadline monitoring before
   completion, including while new. Resume also resets a check to new, so new does not prove it was

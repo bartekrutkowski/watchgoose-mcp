@@ -47,7 +47,11 @@ export class ChannelResolutionError extends Error {
 export function mapToolError(error: unknown): string {
   if (error instanceof ApiResponseError) {
     if (error.status === 400) {
-      if (error.detail?.toLowerCase().includes("channel")) {
+      const lower = error.detail?.toLowerCase() ?? "";
+      if (lower.includes("sms") || lower.includes("phone call") || lower.includes("whatsapp")) {
+        return "Testing SMS, phone call, and WhatsApp integrations is not available via MCP. Test them from the Watchgoose dashboard.";
+      }
+      if (lower.includes("channel")) {
         return "Watchgoose rejected the integration assignment. Use exact, unique integration names from list_channels.";
       }
       return "Watchgoose rejected the request. Check the tool arguments against the documented schedule, grace, timeout, slug, timezone, and integration constraints.";
@@ -65,6 +69,9 @@ export function mapToolError(error: unknown): string {
     }
 
     if (error.status === 404) {
+      if (error.detail?.toLowerCase().includes("channel")) {
+        return "Integration not found. Call list_channels and retry with an exact integration name.";
+      }
       return "Check not found. Refresh list_checks and retry with a current unique_key from this project.";
     }
 

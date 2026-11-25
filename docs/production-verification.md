@@ -42,15 +42,15 @@ WATCHGOOSE_INTEGRATION=1 npm run test:integration
 
 The integration suite performs this disposable-project sequence:
 
-1. Connect with the read-write key and verify all ten tools are listed.
+1. Connect with the read-write key and verify all 13 public-API tools are listed.
 2. Create and update a check.
 3. List and get the check.
 4. Pause and resume it.
 5. Send start, success, failure, and success signals.
 6. Verify sanitized pings, flips, and integrations.
 7. Delete the check.
-8. Connect with the read-only key and verify that only `list_checks`, `get_check`, and `list_flips`
-   are listed.
+8. Connect with the read-only key and verify that only `list_checks`, `get_check`, `list_flips`,
+   `get_health_summary`, and `get_setup_snippet` are listed.
 9. Verify the API rejects the read-only key on the integrations endpoint.
 
 The suite has a final cleanup fallback, but confirm in the dashboard that no `MCP integration ...`
@@ -105,7 +105,7 @@ Restart Claude Desktop and ask it to:
 
 Capture a redacted transcript or screenshots showing the five tool names and successful outcomes.
 Remove API keys, check identifiers, and URLs from evidence. Repeat with the `hcr_` key and confirm
-Claude Desktop sees exactly three tools and no mutation tools.
+Claude Desktop sees exactly five read-only tools and no mutation tools.
 
 ## 5. Publish and CI owner checklist
 

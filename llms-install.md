@@ -64,8 +64,10 @@ them to revoke it in **Project settings > API Access** and create a new one.
 
 ## Tools
 
-Read-only: `list_checks`, `get_check`, `list_flips`. Read-write: `list_pings`, `list_channels`, and,
-when writes are enabled, `create_check`, `update_check`, `pause_check`, `resume_check` and
-`delete_check`.
+Read-only (5): `list_checks`, `get_check`, `list_flips`, `get_health_summary`, `get_setup_snippet`.
+Read-write adds `list_pings`, `list_channels` (plus `get_last_failure` on the hosted OAuth server),
+and when writes are enabled: `create_check`, `upsert_check`, `update_check`, `pause_check`,
+`resume_check`, `delete_check` (plus `report_run` and `test_channel` on the hosted OAuth server).
+Hosted OAuth exposes 16 tools and 4 built-in prompts; local stdio exposes 13 tools and 3 prompts.
 
 Docs: https://watchgoose.com/docs/mcp/ · Support: support@watchgoose.com
